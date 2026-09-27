@@ -2,8 +2,6 @@
 same seed must produce bit-identical metrics, not just "similar" ones.
 """
 
-from __future__ import annotations
-
 from wine_origin.config import load_config
 from wine_origin.data import (
     materialize_raw_csv,

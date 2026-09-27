@@ -10,8 +10,6 @@ recorded here on purpose, not deleted, because a documented dead end is part of
 showing the actual work, not a failure to hide.
 """
 
-from __future__ import annotations
-
 import argparse
 import datetime as dt
 import json

@@ -8,8 +8,6 @@ raw data ever being in version control: anyone can regenerate the CSV and confir
 checksum matches.
 """
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import logging

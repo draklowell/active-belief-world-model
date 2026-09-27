@@ -238,3 +238,7 @@ models/*
 
 # Env secrets
 .env
+
+
+# macOS
+.DS_Store

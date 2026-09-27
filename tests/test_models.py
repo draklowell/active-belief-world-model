@@ -5,8 +5,6 @@ correctness (does the model actually generalize well) is what results/experiment
 and the notebooks are for.
 """
 
-from __future__ import annotations
-
 import numpy as np
 import pandas as pd
 
