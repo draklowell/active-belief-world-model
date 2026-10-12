@@ -23,7 +23,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "flake8==7.3.0",
-    "black==26.5.1",
+    "black[jupyter]==26.5.1",
     "isort==8.0.1",
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
@@ -43,7 +43,6 @@ python-preference = "only-managed"
 
 [tool.black]
 line-length = 100
-target-version = ["py313"]
 
 [tool.isort]
 profile = "black"

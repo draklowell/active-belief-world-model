@@ -47,7 +47,7 @@ def _git_commit_hash() -> str:
             check=True,
         )
         return result.stdout.strip()
-    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+    except subprocess.SubprocessError, FileNotFoundError, OSError:
         return "unknown"
 
 
