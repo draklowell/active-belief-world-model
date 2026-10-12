@@ -34,6 +34,9 @@ jobs:
         run: uv sync --locked
         env:
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
+          # Match the installed SDK components used by this CPU project.
+          PYARROW_WITH_CUDA: "0"
+          PYARROW_WITH_GANDIVA: "0"
 
       - name: flake8
         run: uv run flake8 src/ scripts/ tests/ app/
