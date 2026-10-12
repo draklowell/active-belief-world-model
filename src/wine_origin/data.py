@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 from sklearn.datasets import load_wine
 from sklearn.model_selection import train_test_split
 
 TARGET_COLUMN = "target"
 
 
-def materialize_raw_csv(output_path: str | Path) -> pd.DataFrame:
+def materialize_raw_csv(output_path: str | Path) -> pl.DataFrame:
     """Load ``sklearn``'s built-in wine dataset and write it to ``output_path`` as CSV.
 
     This is the one place the dataset is fetched from ``sklearn`` — everything else in
@@ -25,19 +25,21 @@ def materialize_raw_csv(output_path: str | Path) -> pd.DataFrame:
 
     Returns
     -------
-    pandas.DataFrame
+    polars.DataFrame
         The 13 feature columns plus a ``target`` column (0/1/2, one per cultivar).
     """
-    bunch = load_wine(as_frame=True)
-    df = bunch.frame.rename(columns={"target": TARGET_COLUMN})
+    bunch = load_wine()
+    df = pl.DataFrame(bunch.data, schema=bunch.feature_names, orient="row").with_columns(
+        pl.Series(TARGET_COLUMN, bunch.target)
+    )
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_path, index=False)
+    df.write_csv(output_path)
     return df
 
 
-def load_raw_csv(path: str | Path) -> pd.DataFrame:
+def load_raw_csv(path: str | Path) -> pl.DataFrame:
     """Read the materialized dataset back from disk.
 
     Raises
@@ -52,19 +54,19 @@ def load_raw_csv(path: str | Path) -> pd.DataFrame:
         raise FileNotFoundError(
             f"{path} does not exist yet. Run `python scripts/download_data.py` first."
         )
-    return pd.read_csv(path)
+    return pl.read_csv(path)
 
 
-def split_features_target(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+def split_features_target(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.Series]:
     """Split a dataframe into feature columns ``X`` and the ``target`` series ``y``."""
-    X = df.drop(columns=[TARGET_COLUMN])
+    X = df.drop(TARGET_COLUMN)
     y = df[TARGET_COLUMN]
     return X, y
 
 
 def train_test_split_stratified(
-    df: pd.DataFrame, test_size: float, seed: int
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    df: pl.DataFrame, test_size: float, seed: int
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Stratified train/test split so all three classes stay proportionally represented.
 
     Why this matters: with an unstratified split, a small or imbalanced dataset (this
@@ -78,4 +80,4 @@ def train_test_split_stratified(
         random_state=seed,
         stratify=df[TARGET_COLUMN],
     )
-    return train_df.reset_index(drop=True), test_df.reset_index(drop=True)
+    return train_df, test_df

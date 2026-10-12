@@ -71,7 +71,7 @@ never commit the files themselves, only document what's in them here.
 ## How to get it
 
 ```bash
-python scripts/download_data.py
+uv run python scripts/download_data.py
 ```
 
 This materializes `sklearn`'s built-in dataset to
@@ -114,7 +114,7 @@ samples from one region as if it said something universal about wine chemistry.
 
 `data/raw/CHECKSUMS.txt` (committed to git, unlike the data itself) records the
 sha256 of the exact file this project was built and tested against. Regenerate and
-compare with `python scripts/download_data.py`.
+compare with `uv run python scripts/download_data.py`.
 
 ---
 

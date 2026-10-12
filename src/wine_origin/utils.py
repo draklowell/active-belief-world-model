@@ -64,7 +64,7 @@ def env_info() -> dict[str, Any]:
         Python/OS/platform info, versions of the key libraries this project depends
         on, and the current git commit hash (``"unknown"`` outside a git repo).
     """
-    packages = ["numpy", "pandas", "scikit-learn", "matplotlib", "joblib"]
+    packages = ["numpy", "polars", "scikit-learn", "matplotlib", "joblib"]
     return {
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),

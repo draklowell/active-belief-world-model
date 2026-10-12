@@ -6,7 +6,7 @@ and the notebooks are for.
 """
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 from wine_origin.config import load_config
 from wine_origin.data import (
@@ -21,7 +21,7 @@ def test_pipeline_trains_on_small_sample_and_predicts_right_shape(tmp_path):
     config = load_config("config/default.yaml")
     df = materialize_raw_csv(tmp_path / "wine.csv")
     # ~20 samples, all 3 classes represented
-    small_df = pd.concat([group.sample(n=7, random_state=0) for _, group in df.groupby("target")])
+    small_df = pl.concat([group.sample(n=7, seed=0) for group in df.partition_by("target")])
     X, y = split_features_target(small_df)
 
     model = build_active_model(config)
@@ -30,6 +30,7 @@ def test_pipeline_trains_on_small_sample_and_predicts_right_shape(tmp_path):
 
     assert predictions.shape == (len(X),)
     assert set(predictions).issubset({0, 1, 2})
+    assert model.feature_names_in_.tolist() == X.columns
 
 
 def test_active_model_beats_baseline_on_held_out_data(tmp_path):
@@ -43,10 +44,10 @@ def test_active_model_beats_baseline_on_held_out_data(tmp_path):
 
     baseline = build_baseline()
     baseline.fit(X_train, y_train)
-    baseline_accuracy = np.mean(baseline.predict(X_test) == y_test)
+    baseline_accuracy = np.mean(baseline.predict(X_test) == y_test.to_numpy())
 
     model = build_active_model(config)
     model.fit(X_train, y_train)
-    model_accuracy = np.mean(model.predict(X_test) == y_test)
+    model_accuracy = np.mean(model.predict(X_test) == y_test.to_numpy())
 
     assert model_accuracy > baseline_accuracy

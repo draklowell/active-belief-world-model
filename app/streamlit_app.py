@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import random
 
-import pandas as pd
+import polars as pl
 import streamlit as st
 
 from wine_origin.config import load_config
@@ -89,7 +89,7 @@ def main() -> None:
         }
 
     if st.button("\U0001f3b2 Fill with a random test-set sample", disabled=test_df is None):
-        row = test_df.sample(n=1, random_state=random.randint(0, 10_000)).iloc[0]
+        row = test_df.sample(n=1, seed=random.randint(0, 10_000)).row(0, named=True)
         st.session_state.feature_values = {name: float(row[name]) for name, *_ in FEATURE_SPECS}
         st.session_state.true_label = CLASS_NAMES[int(row["target"])]
     elif test_df is None:
@@ -113,13 +113,17 @@ def main() -> None:
         st.caption(f"Sampled row's true label: **{st.session_state.true_label}**")
 
     if st.button("Predict", type="primary"):
-        X = pd.DataFrame([values])
+        X = pl.DataFrame([values])
         prediction = model.predict(X)[0]
         st.success(f"Predicted: **{CLASS_NAMES[int(prediction)]}**")
 
         if hasattr(model, "predict_proba"):
             proba = model.predict_proba(X)[0]
-            st.bar_chart(pd.Series(proba, index=CLASS_NAMES, name="probability"))
+            st.bar_chart(
+                pl.DataFrame({"cultivar": CLASS_NAMES, "probability": proba}),
+                x="cultivar",
+                y="probability",
+            )
 
     st.divider()
     st.caption(

@@ -15,9 +15,9 @@ so data.py stays "get me clean rows" and models.py stays "get me a fitted estima
 
 from __future__ import annotations
 
-import pandas as pd
+import polars as pl
 
 
-def identity_features(X: pd.DataFrame) -> pd.DataFrame:
+def identity_features(X: pl.DataFrame) -> pl.DataFrame:
     """Return features unchanged. Replace with real transformations if you add any."""
     return X

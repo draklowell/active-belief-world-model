@@ -7,7 +7,7 @@ whole README first.
 
 ## Quick option: a static screenshot
 
-Run `streamlit run app/streamlit_app.py`, open it in a browser, take a screenshot, save it as
+Run `uv run streamlit run app/streamlit_app.py`, open it in a browser, take a screenshot, save it as
 `results/demo/demo.png`, and reference it from the README:
 
 ```markdown

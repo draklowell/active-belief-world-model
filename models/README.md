@@ -44,11 +44,11 @@ def load_model(path, hf_repo_id=""):
     if hf_repo_id:
         from huggingface_hub import hf_hub_download
         return joblib.load(hf_hub_download(repo_id=hf_repo_id, filename="model.joblib"))
-    raise FileNotFoundError(...)  # tells the caller to run `python -m wine_origin train`
+    raise FileNotFoundError(...)  # tells the caller to run `uv run python -m wine_origin train`
 ```
 
-This is what lets `python -m wine_origin predict` and the Streamlit app work on a
-clean machine that has never run `python -m wine_origin train`, as long as
+This is what lets `uv run python -m wine_origin predict` and the Streamlit app work on a
+clean machine that has never run `uv run python -m wine_origin train`, as long as
 `huggingface.repo_id` is configured — no manual download step required.
 
 ## Model card checklist (fill in on the Hub, not just here)

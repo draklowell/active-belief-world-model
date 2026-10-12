@@ -1,19 +1,11 @@
-PYTHON ?= $(shell command -v python3 || command -v python)
-VENV := .venv
-BIN := $(VENV)/bin
-VENV_PYTHON := $(BIN)/python
-PIP := $(VENV_PYTHON) -m pip
-
 .PHONY: setup reproduce
 
 setup:
-	$(PYTHON) -m venv $(VENV)
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt -r requirements-dev.txt
-	$(PIP) install -e .
-	$(BIN)/pre-commit install
+	uv python install 3.15
+	uv sync
+	uv run pre-commit install
 
 reproduce: setup
-	$(BIN)/python scripts/download_data.py
-	$(BIN)/python -m wine_origin train
-	$(BIN)/python -m wine_origin evaluate
+	uv run python scripts/download_data.py
+	uv run python -m wine_origin train
+	uv run python -m wine_origin evaluate

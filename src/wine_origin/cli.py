@@ -12,7 +12,7 @@ import json
 import logging
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 
 from wine_origin import evaluate as evaluate_mod
 from wine_origin import models as models_mod
@@ -137,7 +137,7 @@ def cmd_predict(config: dict, model_path: str | None, input_path: str) -> None:
     model = models_mod.load_model(model_path, config["huggingface"]["repo_id"])
 
     sample = json.loads(Path(input_path).read_text())
-    X = pd.DataFrame([sample])
+    X = pl.DataFrame([sample])
 
     prediction = model.predict(X)[0]
     result = {"prediction": CLASS_NAMES[int(prediction)]}

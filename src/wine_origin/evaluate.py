@@ -7,13 +7,13 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+import polars as pl
 from sklearn.base import BaseEstimator, clone
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 
-def compute_metrics(y_true: pd.Series, y_pred: np.ndarray) -> dict[str, Any]:
+def compute_metrics(y_true: pl.Series, y_pred: np.ndarray) -> dict[str, Any]:
     """Compute the metrics this project reports everywhere: accuracy, macro-F1, and
     the confusion matrix.
 
@@ -30,7 +30,7 @@ def compute_metrics(y_true: pd.Series, y_pred: np.ndarray) -> dict[str, Any]:
 
 
 def cross_validate_accuracy(
-    model: BaseEstimator, X: pd.DataFrame, y: pd.Series, n_splits: int, seed: int
+    model: BaseEstimator, X: pl.DataFrame, y: pl.Series, n_splits: int, seed: int
 ) -> dict[str, float]:
     """Report mean +/- std accuracy across ``n_splits`` stratified folds.
 
