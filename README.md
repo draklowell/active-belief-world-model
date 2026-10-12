@@ -68,11 +68,11 @@ Test set (36 held-out samples) and 5-fold cross-validation, seed=42. Generated b
 
 ## Quick start
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.0 or newer and the Arrow C++ 24.0.0 SDK first, then run:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.0 or newer first, then run:
 
 ```bash
 git clone <repo-url> && cd wine-origin-classifier
-uv python install 3.15
+uv python install 3.14
 uv sync                             # creates .venv and installs runtime and dev dependencies
 uv run pre-commit install            # installs the existing Git hooks
 make reproduce                      # data -> train -> evaluate; should print accuracy=0.9722 macro_f1=0.9710
@@ -80,9 +80,7 @@ uv run streamlit run app/streamlit_app.py  # opens the demo at localhost:8501
 ```
 
 > [!important]
-> Python 3.15 is required by `.python-version` and `pyproject.toml`. `make setup` runs the same Python installation, dependency sync, and hook installation commands shown above. Do not substitute an older Python version if a dependency fails to install.
->
-> Python 3.15 installation currently needs the Arrow C++ SDK to build Streamlit's PyArrow dependency: the versions allowed by Streamlit 1.61.1 have no Python 3.15 wheels. Without that SDK, `uv sync` fails with a missing `ArrowConfig.cmake` / `arrow-config.cmake` error.
+> Python 3.14 is required by `.python-version` and `pyproject.toml`. `make setup` runs the same Python installation, dependency sync, and hook installation commands shown above. Do not substitute an older Python version if a dependency fails to install.
 >
 > `setup` and `reproduce` are the only two `Makefile` targets — deliberately, as a small example of the pattern rather than a wrapper around everything. Every other command in this README (training, the demo, linting, tests) is run directly; see "Development" below.
 
@@ -123,7 +121,7 @@ Everything above (except the placeholders in `docs/proposal|poster|slides/`) is 
 ## Reproducibility
 
 - **Seed**: `42`, set once in `config/default.yaml`, applied via `wine_origin.utils.set_seed()` to both `random` and `numpy`.
-- **Versions**: Python 3.15; dependency declarations are in `pyproject.toml` and exact resolved versions are in `uv.lock`. The committed results were generated on Python 3.13.14; reruns use the current project environment. Every run's exact versions + OS + git commit are captured by `wine_origin.utils.env_info()` and written into `results/metrics.json`'s `env` field — that's what "reproducible" is checked against, not just claimed.
+- **Versions**: Python 3.14; dependency declarations are in `pyproject.toml` and exact resolved versions are in `uv.lock`. The committed results were generated on Python 3.13.14; reruns use the current project environment. Every run's exact versions + OS + git commit are captured by `wine_origin.utils.env_info()` and written into `results/metrics.json`'s `env` field — that's what "reproducible" is checked against, not just claimed.
 - **OS tested on**: macOS (arm64) locally; `.github/workflows/lint.yml` also runs on Ubuntu (`ubuntu-latest`) on every push — add a `test.yml` alongside it the same way if you want CI to run `pytest` too, not just lint.
 - **Runtime**: `make reproduce` takes well under a minute on a laptop — no GPU needed, no dataset download beyond what's bundled in scikit-learn.
 - **Known limitations**: 178 samples total means wide uncertainty on any single metric — see the CV std columns in the results table, and treat any one number with the same caution `results/experiments.md` applies to the random-forest test-set score.
@@ -139,12 +137,23 @@ uv run black src/ scripts/ tests/ app/ && uv run isort src/ scripts/ tests/ app/
 uv run pytest                         # full test suite
 uv run ty check                       # type-check src/, scripts/, tests/, and app/
 uv run pre-commit run --all-files      # existing hooks
-uv run jupyter lab notebooks/          # notebooks use the project's Python 3.15 kernel
+uv run jupyter lab notebooks/          # existing Jupyter notebooks use the project kernel
 ```
 
 Pre-commit hooks (installed by `make setup`) catch most of this before you even open a PR — see `.pre-commit-config.yaml`.
 
 The ty hook checks all first-party Python code on every commit using the project's uv environment. Run `uv sync --locked` after dependency changes; the hook uses `--locked --no-sync` so it does not install dependencies or update `uv.lock`. CI also runs `uv run ty check`.
+
+### Research notebooks
+
+marimo is preferred for new research notebooks. Save them as `.py` files in `notebooks/`
+and track them directly in Git. Existing `.ipynb` notebooks remain supported with Jupyter.
+Both use the uv project environment and dependencies from `pyproject.toml`.
+
+```bash
+uv run marimo edit notebooks/00_marimo_example.py
+uv run marimo check notebooks/00_marimo_example.py
+```
 
 > [!note] Why this matters: CI enforces it instead of "we agreed to"
 > "The team agreed to run black before committing" survives about one deadline-week skip before someone's code silently stops matching. A red `lint` check in CI is unambiguous, and — importantly — **a red CI check blocks merging**: reviewing a PR you can't tell has passed its own tests is a bad use of a reviewer's time, so don't merge over red CI, fix it first.

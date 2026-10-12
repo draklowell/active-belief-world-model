@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "wine-origin"
 version = "0.1.0"
 description = "Wine cultivar classification example project (course template)"
-requires-python = ">=3.15,<3.16"
+requires-python = ">=3.14,<3.15"
 readme = "README.md"
 license = { text = "MIT" }
 dependencies = [
@@ -33,6 +33,7 @@ dev = [
     "ipykernel==7.3.0",
     "nbstripout==0.9.1",
     "ty>=0.0.86",
+    "marimo>=0.25.1",
 ]
 
 [tool.setuptools.packages.find]
@@ -50,7 +51,7 @@ profile = "black"
 line_length = 100
 
 [tool.ty.environment]
-python-version = "3.15"
+python-version = "3.14"
 
 [tool.ty.src]
 include = ["src", "scripts", "tests", "app"]

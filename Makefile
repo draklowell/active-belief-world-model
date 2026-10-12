@@ -1,7 +1,7 @@
 .PHONY: setup reproduce
 
 setup:
-	uv python install 3.15
+	uv python install 3.14
 	uv sync
 	uv run pre-commit install
 

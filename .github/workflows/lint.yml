@@ -16,27 +16,10 @@ jobs:
           enable-cache: true
 
       - name: Set up Python
-        run: uv python install 3.15
-
-      - name: Install Arrow C++ SDK for PyArrow on Python 3.15
-        run: |
-          codename=$(lsb_release --codename --short)
-          wget "https://packages.apache.org/artifactory/arrow/ubuntu/apache-arrow-apt-source-latest-$codename.deb"
-          sudo apt-get install -y "./apache-arrow-apt-source-latest-$codename.deb"
-          sudo apt-get update
-          sudo apt-get install -y \
-            libarrow-dev=24.0.0-1 libarrow-acero-dev=24.0.0-1 \
-            libarrow-compute-dev=24.0.0-1 \
-            libarrow-dataset-dev=24.0.0-1 libarrow-flight-dev=24.0.0-1 \
-            libarrow-flight-sql-dev=24.0.0-1 libparquet-dev=24.0.0-1
+        run: uv python install 3.14
 
       - name: Install dependencies
         run: uv sync --locked
-        env:
-          CMAKE_BUILD_PARALLEL_LEVEL: "2"
-          # Match the installed SDK components used by this CPU project.
-          PYARROW_WITH_CUDA: "0"
-          PYARROW_WITH_GANDIVA: "0"
 
       - name: flake8
         run: uv run flake8 src/ scripts/ tests/ app/
