@@ -1,7 +1,5 @@
 """Load and validate the YAML config that drives every command in this project."""
 
-from __future__ import annotations
-
 import copy
 from pathlib import Path
 from typing import Any

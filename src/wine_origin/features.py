@@ -13,8 +13,6 @@ vectorization, encoding), it goes here rather than inline in data.py or models.p
 so data.py stays "get me clean rows" and models.py stays "get me a fitted estimator".
 """
 
-from __future__ import annotations
-
 import polars as pl
 
 

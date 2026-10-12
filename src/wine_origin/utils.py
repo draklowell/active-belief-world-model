@@ -1,7 +1,5 @@
 """Small cross-cutting helpers: seeding, environment fingerprinting, logging."""
 
-from __future__ import annotations
-
 import logging
 import platform
 import random

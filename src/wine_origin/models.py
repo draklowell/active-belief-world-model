@@ -6,8 +6,6 @@ and scripts/run_experiment.py can't quietly drift into three different versions 
 "the logistic regression model".
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +57,7 @@ def build_random_forest(config: dict[str, Any]) -> RandomForestClassifier:
     )
 
 
-def build_active_model(config: dict[str, Any]) -> BaseEstimator:
+def build_active_model(config: dict[str, Any]) -> Pipeline | RandomForestClassifier:
     """Build whichever model ``config["model"]["active"]`` names.
 
     This is what ``train``/``predict`` use by default, so switching the project's
@@ -82,7 +80,7 @@ def save_model(model: BaseEstimator, path: str | Path) -> None:
     joblib.dump(model, path)
 
 
-def load_model(path: str | Path, hf_repo_id: str = "") -> BaseEstimator:
+def load_model(path: str | Path, hf_repo_id: str = "") -> Pipeline | RandomForestClassifier:
     """Load a fitted model from ``path``, falling back to Hugging Face Hub if missing.
 
     This is what makes the Streamlit app and ``predict`` work on a clean machine that

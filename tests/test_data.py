@@ -53,7 +53,9 @@ def test_split_is_stratified(tmp_path):
 
     # Stratified splitting should keep class proportions close between train and test,
     # not just "some of each class made it in".
-    assert (train_proportions - test_proportions).abs().max() < 0.05
+    max_deviation = (train_proportions - test_proportions).abs().max()
+    assert isinstance(max_deviation, float)
+    assert max_deviation < 0.05
 
 
 def test_no_overlap_between_train_and_test(tmp_path):

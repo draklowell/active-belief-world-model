@@ -30,7 +30,9 @@ def test_pipeline_trains_on_small_sample_and_predicts_right_shape(tmp_path):
 
     assert predictions.shape == (len(X),)
     assert set(predictions).issubset({0, 1, 2})
-    assert model.feature_names_in_.tolist() == X.columns
+    feature_names = getattr(model, "feature_names_in_")
+    assert isinstance(feature_names, np.ndarray)
+    assert feature_names.tolist() == X.columns
 
 
 def test_active_model_beats_baseline_on_held_out_data(tmp_path):

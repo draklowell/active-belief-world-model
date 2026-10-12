@@ -7,8 +7,6 @@ production frontend. See README.md's "other demo formats" note for what a
 research-track or a heavier engineering-track project might do instead.
 """
 
-from __future__ import annotations
-
 import random
 
 import polars as pl
@@ -89,6 +87,7 @@ def main() -> None:
         }
 
     if st.button("\U0001f3b2 Fill with a random test-set sample", disabled=test_df is None):
+        assert test_df is not None
         row = test_df.sample(n=1, seed=random.randint(0, 10_000)).row(0, named=True)
         st.session_state.feature_values = {name: float(row[name]) for name, *_ in FEATURE_SPECS}
         st.session_state.true_label = CLASS_NAMES[int(row["target"])]

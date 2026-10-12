@@ -5,8 +5,6 @@ that knows how to load config, set the seed, and set up logging — every comman
 that for free instead of each script reimplementing it slightly differently.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import logging

@@ -1,7 +1,5 @@
 """Loading, splitting, and persisting the wine dataset."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import polars as pl

@@ -137,11 +137,14 @@ Everything above (except the placeholders in `docs/proposal|poster|slides/`) is 
 uv run flake8 src/ scripts/ tests/ app/ && uv run black --check src/ scripts/ tests/ app/ && uv run isort --check src/ scripts/ tests/ app/  # what CI runs
 uv run black src/ scripts/ tests/ app/ && uv run isort src/ scripts/ tests/ app/  # auto-fix formatting
 uv run pytest                         # full test suite
+uv run ty check                       # type-check src/, scripts/, tests/, and app/
 uv run pre-commit run --all-files      # existing hooks
 uv run jupyter lab notebooks/          # notebooks use the project's Python 3.15 kernel
 ```
 
 Pre-commit hooks (installed by `make setup`) catch most of this before you even open a PR — see `.pre-commit-config.yaml`.
+
+The ty hook checks all first-party Python code on every commit using the project's uv environment. Run `uv sync --locked` after dependency changes; the hook uses `--locked --no-sync` so it does not install dependencies or update `uv.lock`. CI also runs `uv run ty check`.
 
 > [!note] Why this matters: CI enforces it instead of "we agreed to"
 > "The team agreed to run black before committing" survives about one deadline-week skip before someone's code silently stops matching. A red `lint` check in CI is unambiguous, and — importantly — **a red CI check blocks merging**: reviewing a PR you can't tell has passed its own tests is a bad use of a reviewer's time, so don't merge over red CI, fix it first.
