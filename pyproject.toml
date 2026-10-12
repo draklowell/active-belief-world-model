@@ -52,10 +52,11 @@ line_length = 100
 
 [tool.ty.environment]
 python-version = "3.14"
+extra-paths = [".agents/skills/experimental-design/scripts"]
 
 [tool.ty.src]
-include = ["src", "scripts", "tests", "app"]
+include = ["src", "scripts", "tests", "app", ".agents/skills/experimental-design"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", ".agents/skills/experimental-design/tests"]
 addopts = "-ra"

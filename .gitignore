@@ -217,6 +217,8 @@ __marimo__/
 
 # --- Project-specific ---
 
+.artifacts/
+
 # Data: never commit raw/interim/processed data, only the checksums and READMEs
 data/raw/*
 !data/raw/.gitkeep
