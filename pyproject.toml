@@ -34,6 +34,9 @@ dev = [
     "nbstripout==0.9.1",
     "ty>=0.0.86",
     "marimo>=0.25.1",
+    "mdformat==1.0.0",
+    "mdformat-gfm==1.0.0",
+    "mdformat-frontmatter==2.1.2",
 ]
 
 [tool.setuptools.packages.find]

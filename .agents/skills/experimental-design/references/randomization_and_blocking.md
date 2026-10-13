@@ -14,13 +14,13 @@ which observations count as independent.
 
 ## Allocation methods
 
-| Method | Use | Caveat |
-| --- | --- | --- |
-| Simple allocation | Independent units; balance not essential | Small samples can be imbalanced |
-| Permuted blocks | Maintain arm ratios in complete blocks | Incomplete blocks need not balance |
-| Stratified blocks | Balance arms within task family or application | Sparse strata may make blocks impractical |
-| Cluster assignment | Conditions assigned at whole machine/app/site level | Cluster, not episode, is the independent unit |
-| Paired tasks with order randomization | Every condition runs on every task | Reset state and handle order effects |
+| Method                                | Use                                                 | Caveat                                        |
+| ------------------------------------- | --------------------------------------------------- | --------------------------------------------- |
+| Simple allocation                     | Independent units; balance not essential            | Small samples can be imbalanced               |
+| Permuted blocks                       | Maintain arm ratios in complete blocks              | Incomplete blocks need not balance            |
+| Stratified blocks                     | Balance arms within task family or application      | Sparse strata may make blocks impractical     |
+| Cluster assignment                    | Conditions assigned at whole machine/app/site level | Cluster, not episode, is the independent unit |
+| Paired tasks with order randomization | Every condition runs on every task                  | Reset state and handle order effects          |
 
 Use `scripts/randomization.py` only when an explicit allocation/order schedule
 helps. It returns `pl.DataFrame` and uses four-digit seeds by default.

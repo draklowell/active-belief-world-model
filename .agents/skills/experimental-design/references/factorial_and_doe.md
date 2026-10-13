@@ -8,13 +8,13 @@ training results. Do not assume every generated combination is feasible.
 
 ## Example research factors
 
-| Factor | Levels | Intended question |
-| --- | --- | --- |
-| Model output | text, image, both | Which modalities add decision utility? |
-| Active belief policy | off, on | Does active rollout selection help? |
-| Rollout horizon | 1, 2, 4 | How does foresight trade off against cost? |
-| Uncertainty threshold | 0.2, 0.5, 0.8 | How sensitive is selection? |
-| Model seed | 2026, 2027, 2028 | How stable is training? |
+| Factor                | Levels            | Intended question                          |
+| --------------------- | ----------------- | ------------------------------------------ |
+| Model output          | text, image, both | Which modalities add decision utility?     |
+| Active belief policy  | off, on           | Does active rollout selection help?        |
+| Rollout horizon       | 1, 2, 4           | How does foresight trade off against cost? |
+| Uncertainty threshold | 0.2, 0.5, 0.8     | How sensitive is selection?                |
+| Model seed            | 2026, 2027, 2028  | How stable is training?                    |
 
 Treat these as illustrative, not approved benchmark settings. Some factors may
 be logically coupled, e.g. active belief may require world-model predictions;
@@ -66,11 +66,11 @@ For `I = ABCD`, the example is resolution IV: main effects are not aliased
 with two-factor interactions, but some two-factor interactions are aliased
 with each other. Interpret the actual generator, not a generic label.
 
-| Resolution | Main limitations |
-| --- | --- |
-| III | Main effects can alias with two-factor interactions |
-| IV | Main effects separated from two-factor interactions; 2FI can alias with other 2FI |
-| V | Main effects and 2FI separated from one another, assuming negligible higher interactions |
+| Resolution | Main limitations                                                                         |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| III        | Main effects can alias with two-factor interactions                                      |
+| IV         | Main effects separated from two-factor interactions; 2FI can alias with other 2FI        |
+| V          | Main effects and 2FI separated from one another, assuming negligible higher interactions |
 
 ## Plackett-Burman-type screening
 

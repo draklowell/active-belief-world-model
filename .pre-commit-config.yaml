@@ -33,3 +33,11 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+
+  - repo: local
+    hooks:
+      - id: mdformat
+        name: mdformat
+        entry: uv run --locked --no-sync mdformat
+        language: system
+        types: [markdown]

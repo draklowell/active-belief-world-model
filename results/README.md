@@ -2,12 +2,12 @@
 
 What's in here and how it got there:
 
-| File | Written by | Contains |
-|---|---|---|
-| `metrics.json` | `uv run python -m wine_origin evaluate` (single active model) or `uv run python scripts/run_experiment.py` (full comparison — superset of what `evaluate` writes) | Whichever ran most recently — see below |
-| `experiments.md` | `uv run python scripts/run_experiment.py` | The experiment log: baseline + every model tried, including the rejected one |
-| `figures/*.png` | `evaluate` / `run_experiment.py` | Confusion matrix plots |
-| `demo/demo-wine.gif` | Recorded by hand (see `docs/recording-a-demo.md`) | Screen recording of the Streamlit app, embedded in the root README's Demo section |
+| File                 | Written by                                                                                                                                                        | Contains                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `metrics.json`       | `uv run python -m wine_origin evaluate` (single active model) or `uv run python scripts/run_experiment.py` (full comparison — superset of what `evaluate` writes) | Whichever ran most recently — see below                                           |
+| `experiments.md`     | `uv run python scripts/run_experiment.py`                                                                                                                         | The experiment log: baseline + every model tried, including the rejected one      |
+| `figures/*.png`      | `evaluate` / `run_experiment.py`                                                                                                                                  | Confusion matrix plots                                                            |
+| `demo/demo-wine.gif` | Recorded by hand (see `docs/recording-a-demo.md`)                                                                                                                 | Screen recording of the Streamlit app, embedded in the root README's Demo section |
 
 **Why `metrics.json` is committed but `data/` and `models/` aren't:** it's a small JSON file (a few KB), and it's what makes the numbers in the root README's results table checkable without anyone having to rerun training first.
 

@@ -33,17 +33,17 @@
 
 ## Tooling and Verification
 
-| Purpose | Tool |
-|---|---|
-| Dependencies and environment | uv |
-| Formatting | Black |
-| Import sorting | isort |
-| Linting | flake8 |
-| Static type checking | ty |
-| Tests | pytest |
-| Git hooks | pre-commit |
-| Interactive notebooks | marimo |
-| Tabular data | Polars |
+| Purpose                      | Tool       |
+| ---------------------------- | ---------- |
+| Dependencies and environment | uv         |
+| Formatting                   | Black      |
+| Import sorting               | isort      |
+| Linting                      | flake8     |
+| Static type checking         | ty         |
+| Tests                        | pytest     |
+| Git hooks                    | pre-commit |
+| Interactive notebooks        | marimo     |
+| Tabular data                 | Polars     |
 
 Use the existing configuration instead of introducing alternative tooling.
 
@@ -100,30 +100,30 @@ Do not combine unrelated changes into one commit. Do not create commits unless e
 
 ## Artifacts and Research Notes
 
-1. Use `.artifacts/` as the workspace for temporary research outputs, experiment results, debugging notes, and agent-generated reports.
-2. Store useful intermediate findings when they help explain decisions, reproduce experiments, or continue work in a later session.
-3. Allowed artifacts include Markdown notes, logs, CSV files, metrics, experiment configurations, profiling results, and debugging reports.
-4. Organize artifacts by task or experiment. Use descriptive filenames and avoid unnecessary files.
-5. Prefer updating an existing artifact over creating multiple overlapping reports.
-6. Do not create documentation or artifacts for trivial changes.
-7. Record relevant commands, configurations, seeds, metrics, and conclusions when reporting experimental results.
-8. Clearly distinguish measured results, hypotheses, assumptions, and unverified observations.
-9. Keep `.artifacts/` excluded from Git. Do not stage or commit its contents.
+01. Use `.artifacts/` as the workspace for temporary research outputs, experiment results, debugging notes, and agent-generated reports.
+02. Store useful intermediate findings when they help explain decisions, reproduce experiments, or continue work in a later session.
+03. Allowed artifacts include Markdown notes, logs, CSV files, metrics, experiment configurations, profiling results, and debugging reports.
+04. Organize artifacts by task or experiment. Use descriptive filenames and avoid unnecessary files.
+05. Prefer updating an existing artifact over creating multiple overlapping reports.
+06. Do not create documentation or artifacts for trivial changes.
+07. Record relevant commands, configurations, seeds, metrics, and conclusions when reporting experimental results.
+08. Clearly distinguish measured results, hypotheses, assumptions, and unverified observations.
+09. Keep `.artifacts/` excluded from Git. Do not stage or commit its contents.
 10. Do not store credentials, tokens, private information, or unnecessary copies of large datasets in artifacts.
 11. Important validated findings intended for the project history should be promoted to tracked documentation when explicitly requested.
 12. Summarize significant findings and reference relevant artifact paths in the final response.
 
 ## Code Changes and Cleanup
 
-1. All substantial code changes must pass the relevant test suite, formatting, linting, and static type checks.
-2. Preserve existing functionality unless the task explicitly requires changing it.
-3. When replacing an implementation, remove obsolete functions, classes, imports, configuration, and references that are no longer used.
-4. Do not leave commented-out implementations, redundant wrappers, or compatibility code that serves no purpose.
-5. Update affected tests when behavior or interfaces change. Add focused tests for new functionality and important regressions.
-6. Prefer modifying existing code over introducing parallel implementations of the same behavior.
-7. Keep changes minimal, readable, idiomatic, and consistent with project conventions.
-8. Do not perform unrelated cleanup outside the task scope.
-9. Before removing code, verify that it is no longer referenced by relevant callers, tests, or supported interfaces.
+01. All substantial code changes must pass the relevant test suite, formatting, linting, and static type checks.
+02. Preserve existing functionality unless the task explicitly requires changing it.
+03. When replacing an implementation, remove obsolete functions, classes, imports, configuration, and references that are no longer used.
+04. Do not leave commented-out implementations, redundant wrappers, or compatibility code that serves no purpose.
+05. Update affected tests when behavior or interfaces change. Add focused tests for new functionality and important regressions.
+06. Prefer modifying existing code over introducing parallel implementations of the same behavior.
+07. Keep changes minimal, readable, idiomatic, and consistent with project conventions.
+08. Do not perform unrelated cleanup outside the task scope.
+09. Before removing code, verify that it is no longer referenced by relevant callers, tests, or supported interfaces.
 10. Do not suppress type errors, disable tests, or weaken quality checks to make changes pass.
 11. If verification fails, investigate and fix issues introduced by the change. Report pre-existing failures separately.
 12. Do not describe a task as complete when required checks are failing or have not been executed. State the remaining blockers explicitly.

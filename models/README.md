@@ -5,10 +5,10 @@ where they go instead, and how the code finds them either way.
 
 ## Why not just commit the model file?
 
-| Threshold | What happens |
-|---|---|
-| > 10 MB | Not committed — this template's `.pre-commit-config.yaml` fails the `check-added-large-files` hook at 1000 KB / 10 MB |
-| > 100 MB | GitHub rejects the push outright |
+| Threshold                | What happens                                                                                                                                                                                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| > 10 MB                  | Not committed — this template's `.pre-commit-config.yaml` fails the `check-added-large-files` hook at 1000 KB / 10 MB                                                                                                                                                |
+| > 100 MB                 | GitHub rejects the push outright                                                                                                                                                                                                                                     |
 | Any size, after the fact | `git rm large_file.joblib` does **not** remove it from git history — the object stays in every clone forever unless someone rewrites history (`git filter-repo`, BFG), which is painful for a whole team to coordinate. Decide *before* the first commit, not after. |
 
 This project's model (`models/model.joblib`, a scikit-learn pipeline) happens to be under a
@@ -64,10 +64,10 @@ When you create the Hub repo, its model card (`README.md` on the Hub) should cov
 
 ## Alternatives to Hugging Face Hub
 
-| Option | Good for |
-|---|---|
-| Hugging Face Hub | Models *and* datasets, free hosting, versioning, the pattern used above |
-| GitHub Releases | A one-off artifact up to ~2 GB, no need for model-specific tooling |
-| Git LFS | If you want the file to still feel like "part of the repo" via git commands |
+| Option              | Good for                                                                     |
+| ------------------- | ---------------------------------------------------------------------------- |
+| Hugging Face Hub    | Models *and* datasets, free hosting, versioning, the pattern used above      |
+| GitHub Releases     | A one-off artifact up to ~2 GB, no need for model-specific tooling           |
+| Git LFS             | If you want the file to still feel like "part of the repo" via git commands  |
 | DVC + cloud storage | Multiple large artifacts across a project's lifetime, with pipeline tracking |
-| Zenodo | You need a DOI (e.g. citing a specific model version in a paper) |
+| Zenodo              | You need a DOI (e.g. citing a specific model version in a paper)             |
