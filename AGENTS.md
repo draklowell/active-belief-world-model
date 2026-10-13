@@ -108,6 +108,10 @@ class Class(object):
 5. Catch exceptions only when recovery or useful additional context is possible. Never silently swallow errors.
 6. Do not use `assert` for production input validation. Use normal pytest assertions in tests.
 7. Do not introduce fallback behavior unless it is explicitly required.
+8. Never throw errors for operations where the semantic intent can be gracefully satisfied, for example:
+   - Enforce mathematical identities: `mean([])` or `sum([])` should return `0`, not raise `ValueError`.
+   - Make deletions idempotent: `delete(missing_record)` or `rm(missing_file)` must return success. The intent ("ensure it's gone") is already met.
+   - Forgive boundaries: array slicing outside existing bounds should yield an empty array, not an `IndexOutOfBounds` exception.
 
 ## Tooling and Verification
 
