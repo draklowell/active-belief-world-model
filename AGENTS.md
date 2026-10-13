@@ -24,7 +24,7 @@
 
 ## Naming Conventions
 
-1. Use snake_case for variables, functions, and methods. Use PascalCase for classes. Use UPPER_SNAKE_CASE for constants. Prefix internal/private attributes and methods with a single underscore (e.g., _internal_state).
+1. Use snake_case for variables, functions, and methods. Use PascalCase for classes. Use UPPER_SNAKE_CASE for constants. Prefix internal/private attributes and methods with a single underscore (e.g., \_internal_state).
 2. For boolean variables, use names that clearly indicate their meaning. Always use prefixes such as `is_`, `has_`, `can_`, or `should_`. For example, use `is_valid`, `has_permission`, `can_execute`, or `should_retry`.
 3. Use strong verbs that describe the exact action being performed. Avoid ambiguous names like `process_data()`, `handle_event()`, or `do_work()`. Instead, use `parse_market_data()`, `route_incoming_event()`, or `calculate_volatility()`.
 4. Specific Class Nouns: Use descriptive nouns that define the entity's exact role. Avoid vague suffix crutches like `Manager`, `Handler`, or `Processor`. Instead of `DataProcessor`, use `DataNormalizer` or `MetricsAggregator`.
@@ -124,18 +124,18 @@ class Class(object):
 
 ## Tooling and Verification
 
-| Purpose | Tool |
-|---|---|
-| Dependencies and environment | uv |
-| Formatting | Black |
-| Import sorting | isort |
-| Linting | flake8 |
-| Static type checking | ty |
-| Tests | pytest |
-| Git hooks | pre-commit |
-| Interactive notebooks | marimo |
-| Tabular data | polars |
-| Plotting | plotly, plotly-express |
+| Purpose                      | Tool                   |
+| ---------------------------- | ---------------------- |
+| Dependencies and environment | uv                     |
+| Formatting                   | Black                  |
+| Import sorting               | isort                  |
+| Linting                      | flake8                 |
+| Static type checking         | ty                     |
+| Tests                        | pytest                 |
+| Git hooks                    | pre-commit             |
+| Interactive notebooks        | marimo                 |
+| Tabular data                 | polars                 |
+| Plotting                     | plotly, plotly-express |
 
 Use the existing configuration instead of introducing alternative tooling.
 
@@ -157,10 +157,10 @@ Report failures rather than weakening checks to make them pass.
 
 1. Prefer Polars for tabular data processing. Use native expressions, `with_columns`. Avoid Python loops for operations that can be expressed directly in Polars.
 2. Use lazy evaluation only for multi-step pipelines that benefit from query optimization or streaming processing. Avoid lazy evaluation for single-step operations.
-2. Preserve existing experiment seeds and splits unless explicitly changing the experiment. Use seed 2026 for new experiments. Avoid using random seeds unless explicitly required. Keep all experiments reproducible and deterministics.
-3. Keep training, validation, and testing boundaries clear. Prevent data leakage.
-4. Record experiment configurations, seeds, metrics, and relevant artifacts. # How to record?
-5. Compare experiments against a consistent baseline. Do not report unmeasured improvements or invent results. # How to compare?
+3. Preserve existing experiment seeds and splits unless explicitly changing the experiment. Use seed 2026 for new experiments. Avoid using random seeds unless explicitly required. Keep all experiments reproducible and deterministics.
+4. Keep training, validation, and testing boundaries clear. Prevent data leakage.
+5. Record experiment configurations, seeds, metrics, and relevant artifacts. # How to record?
+6. Compare experiments against a consistent baseline. Do not report unmeasured improvements or invent results. # How to compare?
 
 ## Notebooks
 
@@ -179,7 +179,6 @@ Report failures rather than weakening checks to make them pass.
 1. Use Plotly Express for quick visualizations where possible. Only if Plotly Express does not support the required functionality, use Plotly's `graph_objects` API.
 2. Do not use any other plotting libraries, wrappers or custom styles. Stick to built-in style and color palettes.
 3. Always label axes, legends, and titles. Use clear and descriptive labels. Avoid generic labels such as "x", "y", or "value". Axes, legends and titles should be capitalized and use sentence case. Avoid all caps, camel case, or snake case.
-
 
 ## Writing
 
