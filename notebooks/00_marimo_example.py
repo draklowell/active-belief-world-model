@@ -60,15 +60,19 @@ def reactive_result(mo, pl, transitions, wait_budget):
     over_budget = transitions.filter(
         pl.col("state_changed") & (pl.col("latency_ms") > budget_ms)
     ).sort("latency_ms")
-    mo.vstack(
-        [
-            mo.md(
-                f"**{over_budget.height} toy UI changes** arrive after the {budget_ms} ms budget."
-            ),
-            mo.ui.table(over_budget, selection=None),
-        ]
+    return (
+        budget_ms,
+        over_budget,
+        mo.vstack(
+            [
+                mo.md(
+                    f"**{over_budget.height} toy UI changes** "
+                    f"arrive after the {budget_ms} ms budget."
+                ),
+                mo.ui.table(over_budget, selection=None),
+            ]
+        ),
     )
-    return budget_ms, over_budget
 
 
 if __name__ == "__main__":

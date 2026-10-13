@@ -16,25 +16,20 @@ class ConfigError(ValueError):
 def load_config(path: str | Path, overrides: list[str] | None = None) -> dict[str, Any]:
     """Load a YAML config file and apply ``key.path=value`` overrides.
 
-    Parameters
-    ----------
-    path : str or Path
-        Path to a YAML file, e.g. ``config/default.yaml``.
-    overrides : list of str, optional
-        Strings of the form ``"model.random_forest.n_estimators=300"``, as passed via
-        the CLI's repeatable ``--override`` flag. Values are parsed with
-        :func:`yaml.safe_load` so ``42``, ``true``, ``null``, and quoted strings all
-        come out as the right Python type.
+    Values in overrides are parsed with ``yaml.safe_load`` so ``42``, ``true``,
+    ``null``, and quoted strings all come out as the right Python type.
 
-    Returns
-    -------
-    dict
-        The merged configuration.
+    Args:
+        path: Path to a YAML file, e.g. ``config/default.yaml``.
+        overrides: Strings of the form ``"model.random_forest.n_estimators=300"``,
+            as passed via the CLI's repeatable ``--override`` flag.
 
-    Raises
-    ------
-    ConfigError
-        If the file is missing, isn't a mapping, or is missing a required top-level key.
+    Returns:
+        The merged configuration dict.
+
+    Raises:
+        ConfigError: If the file is missing, isn't a mapping, or is missing a
+            required top-level key.
     """
     config_path = Path(path)
     if not config_path.exists():

@@ -3,8 +3,8 @@
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
+import plotly.graph_objects as go
 import polars as pl
 from sklearn.base import BaseEstimator, clone
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
@@ -46,22 +46,29 @@ def plot_confusion_matrix(
 ) -> None:
     """Render and save a confusion-matrix heatmap."""
     cm_array = np.array(cm)
-    fig, ax = plt.subplots(figsize=(5, 4))
-    im = ax.imshow(cm_array, cmap="Blues")
-    ax.set_xticks(range(len(class_names)))
-    ax.set_yticks(range(len(class_names)))
-    ax.set_xticklabels(class_names)
-    ax.set_yticklabels(class_names)
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("True")
-    ax.set_title("Confusion matrix")
-    for i in range(cm_array.shape[0]):
-        for j in range(cm_array.shape[1]):
-            ax.text(j, i, str(cm_array[i, j]), ha="center", va="center")
-    fig.colorbar(im, ax=ax)
-    fig.tight_layout()
+    text = [
+        [str(cm_array[i, j]) for j in range(cm_array.shape[1])] for i in range(cm_array.shape[0])
+    ]
+    fig = go.Figure(
+        go.Heatmap(
+            z=cm_array,
+            x=class_names,
+            y=class_names,
+            text=text,
+            texttemplate="%{text}",
+            colorscale="Blues",
+            showscale=True,
+        )
+    )
+    fig.update_layout(
+        title="Confusion matrix",
+        xaxis_title="Predicted",
+        yaxis_title="True",
+        yaxis_autorange="reversed",
+        width=500,
+        height=400,
+    )
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=150)
-    plt.close(fig)
+    fig.write_image(str(output_path))

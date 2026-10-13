@@ -3,11 +3,7 @@ same seed must produce bit-identical metrics, not just "similar" ones.
 """
 
 from wine_origin.config import load_config
-from wine_origin.data import (
-    materialize_raw_csv,
-    split_features_target,
-    train_test_split_stratified,
-)
+from wine_origin.data import materialize_raw_csv, split_features_target, train_test_split_stratified
 from wine_origin.evaluate import compute_metrics
 from wine_origin.models import build_active_model
 from wine_origin.utils import set_seed

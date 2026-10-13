@@ -22,10 +22,27 @@ CHECKSUMS_FILE = Path("data/raw/CHECKSUMS.txt")
 
 
 def sha256_of(path: Path) -> str:
+    """Compute the SHA-256 hex digest of a file's bytes.
+
+    Args:
+        path: Path to the file to hash.
+
+    Returns:
+        Lowercase hex string of the SHA-256 digest.
+    """
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def read_recorded_checksum(checksums_file: Path, filename: str) -> str | None:
+    """Read the recorded SHA-256 digest for ``filename`` from a checksums file.
+
+    Args:
+        checksums_file: Path to a file in the format ``<digest>  <filename>`` per line.
+        filename: Bare filename (no directory) to look up.
+
+    Returns:
+        The recorded hex digest, or ``None`` if the file or entry does not exist.
+    """
     if not checksums_file.exists():
         return None
     for line in checksums_file.read_text().splitlines():
@@ -39,6 +56,13 @@ def read_recorded_checksum(checksums_file: Path, filename: str) -> str | None:
 
 
 def write_checksum(checksums_file: Path, filename: str, digest: str) -> None:
+    """Write a SHA-256 checksum entry to ``checksums_file``, replacing existing content.
+
+    Args:
+        checksums_file: Destination path for the checksums file.
+        filename: Bare filename to record alongside the digest.
+        digest: SHA-256 hex digest string.
+    """
     checksums_file.parent.mkdir(parents=True, exist_ok=True)
     checksums_file.write_text(
         "# sha256 checksums for files in data/raw/, so reproducibility can be checked\n"
@@ -49,6 +73,7 @@ def write_checksum(checksums_file: Path, filename: str, digest: str) -> None:
 
 
 def main() -> None:
+    """Materialize the wine CSV and write its SHA-256 checksum, skipping if up to date."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--force", action="store_true", help="Re-materialize even if checksums already match"
