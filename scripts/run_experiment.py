@@ -21,11 +21,7 @@ from sklearn.svm import SVC
 from wine_origin import evaluate as evaluate_mod
 from wine_origin import models as models_mod
 from wine_origin.config import load_config
-from wine_origin.data import (
-    load_raw_csv,
-    split_features_target,
-    train_test_split_stratified,
-)
+from wine_origin.data import load_raw_csv, split_features_target, train_test_split_stratified
 from wine_origin.utils import env_info, set_seed
 
 logger = logging.getLogger(__name__)
@@ -34,6 +30,22 @@ CLASS_NAMES = ["class_0", "class_1", "class_2"]
 
 
 def evaluate_one(model, X_train, y_train, X_test, y_test, X_all, y_all, cv_splits, seed):
+    """Fit a model and return test-set metrics plus cross-validation accuracy.
+
+    Args:
+        model: An unfitted scikit-learn estimator.
+        X_train: Training feature dataframe.
+        y_train: Training target series.
+        X_test: Test feature dataframe.
+        y_test: Test target series.
+        X_all: Full feature dataframe (used for cross-validation).
+        y_all: Full target series (used for cross-validation).
+        cv_splits: Number of stratified folds for cross-validation.
+        seed: Random seed passed to cross-validation.
+
+    Returns:
+        Dict of accuracy, macro_f1, confusion_matrix, cv_mean_accuracy, cv_std_accuracy.
+    """
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
     metrics = evaluate_mod.compute_metrics(y_test, y_pred)
@@ -42,11 +54,28 @@ def evaluate_one(model, X_train, y_train, X_test, y_test, X_all, y_all, cv_split
 
 
 def build_svm_default(seed: int) -> SVC:
-    """Deliberately untuned SVM, used only to produce the negative-result entry below."""
+    """Build a deliberately untuned SVM, used only to produce the negative-result entry.
+
+    Args:
+        seed: Random state for reproducibility.
+
+    Returns:
+        An unfitted ``SVC`` with default hyperparameters.
+    """
     return SVC(random_state=seed)
 
 
 def render_experiments_log(results: dict, generated_at: str, config: dict) -> str:
+    """Render the experiments markdown log from a dict of per-model results.
+
+    Args:
+        results: Mapping of model name to its metrics dict.
+        generated_at: Human-readable UTC timestamp string for the log header.
+        config: Loaded project configuration dict.
+
+    Returns:
+        Full markdown string ready to be written to ``results/experiments.md``.
+    """
     lines = [
         "# Experiment log",
         "",
@@ -127,6 +156,7 @@ def render_experiments_log(results: dict, generated_at: str, config: dict) -> st
 
 
 def main() -> None:
+    """Run all candidate models, write metrics and the experiment log, then print a summary."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="config/default.yaml")
     args = parser.parse_args()

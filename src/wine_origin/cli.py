@@ -15,11 +15,7 @@ import polars as pl
 from wine_origin import evaluate as evaluate_mod
 from wine_origin import models as models_mod
 from wine_origin.config import load_config
-from wine_origin.data import (
-    load_raw_csv,
-    split_features_target,
-    train_test_split_stratified,
-)
+from wine_origin.data import load_raw_csv, split_features_target, train_test_split_stratified
 from wine_origin.utils import env_info, set_seed, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -44,6 +40,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level argument parser with train, evaluate, and predict subcommands.
+
+    Returns:
+        Configured argument parser ready for ``parse_args``.
+    """
     parser = argparse.ArgumentParser(
         prog="python -m wine_origin",
         description="Train, evaluate, and run predictions for the wine cultivar classifier.",
@@ -80,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_train(config: dict) -> None:
+    """Train the active model and save it to the path defined in config.
+
+    Args:
+        config: Loaded project configuration dict.
+    """
     set_seed(config["seed"])
     df = load_raw_csv(config["paths"]["raw_data"])
     train_df, _test_df = train_test_split_stratified(
@@ -96,6 +102,12 @@ def cmd_train(config: dict) -> None:
 
 
 def cmd_evaluate(config: dict, model_path: str | None) -> None:
+    """Evaluate a trained model, write metrics.json, and save the confusion matrix.
+
+    Args:
+        config: Loaded project configuration dict.
+        model_path: Path to a model file, or ``None`` to use the config default.
+    """
     set_seed(config["seed"])
     model_path = model_path or config["paths"]["model"]
     model = models_mod.load_model(model_path, config["huggingface"]["repo_id"])
@@ -131,6 +143,13 @@ def cmd_evaluate(config: dict, model_path: str | None) -> None:
 
 
 def cmd_predict(config: dict, model_path: str | None, input_path: str) -> None:
+    """Run inference on a single sample and print the result as JSON.
+
+    Args:
+        config: Loaded project configuration dict.
+        model_path: Path to a model file, or ``None`` to use the config default.
+        input_path: Path to a JSON file containing the 13 feature values.
+    """
     model_path = model_path or config["paths"]["model"]
     model = models_mod.load_model(model_path, config["huggingface"]["repo_id"])
 
@@ -147,6 +166,11 @@ def cmd_predict(config: dict, model_path: str | None, input_path: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Parse arguments, load config, and dispatch to the appropriate subcommand.
+
+    Args:
+        argv: Argument list, or ``None`` to read from ``sys.argv``.
+    """
     parser = build_parser()
     args = parser.parse_args(argv)
 
