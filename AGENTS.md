@@ -20,6 +20,15 @@
 6. Avoid leading underscores in variable and function names, except when required by Python protocols, Marimo conventions, or external APIs.
 7. Use `pathlib` for filesystem operations.
 8. Keep functions focused and avoid unnecessary classes, wrappers, and helper functions.
+9. For imports do not use `import *`. You should import `polars` as `pl`, `polars.selectors` as `cs`, `plotly.express` as `px`, `plotly.graph_objects` as `go`, `plotly.subplots` as `sp`, `numpy` as `np`, `marimo` as `mo`, `streamlit` as `st`. For all other libraries, use the default import name or use `from <module> import <class/function>` for specific classes or functions. Avoid aliasing unless necessary to avoid name conflicts or improve clarity.
+
+## Naming Conventions
+
+1. Use snake_case for variables, functions, and methods. Use PascalCase for classes. Use UPPER_SNAKE_CASE for constants. Prefix internal/private attributes and methods with a single underscore (e.g., _internal_state).
+2. For boolean variables, use names that clearly indicate their meaning. Always use prefixes such as `is_`, `has_`, `can_`, or `should_`. For example, use `is_valid`, `has_permission`, `can_execute`, or `should_retry`.
+3. Use strong verbs that describe the exact action being performed. Avoid ambiguous names like `process_data()`, `handle_event()`, or `do_work()`. Instead, use `parse_market_data()`, `route_incoming_event()`, or `calculate_volatility()`.
+4. Specific Class Nouns: Use descriptive nouns that define the entity's exact role. Avoid vague suffix crutches like `Manager`, `Handler`, or `Processor`. Instead of `DataProcessor`, use `DataNormalizer` or `MetricsAggregator`.
+5. Avoid arbitrary abbreviations, but accept domain-standard acronyms (e.g., `http`, `uuid`). While descriptive loop variables (e.g., for record in records) are strongly preferred, standard mathematical or index variables (`i`, `j`, `x`, `y`) are acceptable for simple iterations or coordinate math. Always use _ for throwaway variables in unpacks or loops. Do not use `df` acronyms for DataFrames. Use descriptive names like `user_data`, `transaction_records`, or `sensor_readings` instead.
 
 ## Docstrings
 
@@ -125,7 +134,8 @@ class Class(object):
 | Tests | pytest |
 | Git hooks | pre-commit |
 | Interactive notebooks | marimo |
-| Tabular data | Polars |
+| Tabular data | polars |
+| Plotting | plotly, plotly-express |
 
 Use the existing configuration instead of introducing alternative tooling.
 
@@ -145,21 +155,31 @@ Report failures rather than weakening checks to make them pass.
 
 ## Data and Experiments
 
-1. Prefer Polars for tabular data processing. Use native expressions, `with_columns`, and lazy operations where appropriate. Avoid Python loops for operations that can be expressed directly in Polars.
-2. Preserve existing experiment seeds and splits unless explicitly changing the experiment.
+1. Prefer Polars for tabular data processing. Use native expressions, `with_columns`. Avoid Python loops for operations that can be expressed directly in Polars.
+2. Use lazy evaluation only for multi-step pipelines that benefit from query optimization or streaming processing. Avoid lazy evaluation for single-step operations.
+2. Preserve existing experiment seeds and splits unless explicitly changing the experiment. Use seed 2026 for new experiments. Avoid using random seeds unless explicitly required. Keep all experiments reproducible and deterministics.
 3. Keep training, validation, and testing boundaries clear. Prevent data leakage.
-4. Record experiment configurations, seeds, metrics, and relevant artifacts.
-5. Compare experiments against a consistent baseline. Do not report unmeasured improvements or invent results.
+4. Record experiment configurations, seeds, metrics, and relevant artifacts. # How to record?
+5. Compare experiments against a consistent baseline. Do not report unmeasured improvements or invent results. # How to compare?
 
-## Notebooks and Visualizations
+## Notebooks
 
 1. Prefer marimo for new notebooks. Store them as `.py` files in `notebooks/`.
 2. Use dedicated Markdown cells for explanatory text. Avoid generating narrative paragraphs through `print()`, `display(Markdown(...))`, or similar wrappers.
-3. Let notebook cells display their results directly when possible. Avoid verbose console output.
-4. Prefer named plot colors such as `"red"` or `"steelblue"` instead of hexadecimal values.
-5. Use consistent mathematical notation across code, plots, and explanations.
-6. Keep notebooks focused on exploration and analysis. Move reusable logic into regular Python modules.
-7. Preserve existing `.ipynb` notebooks unless migration is explicitly requested.
+3. If narrative text has to be generated programmatically (e.g., for reporting variables), use native Marimo's functions such as `mo.md()`, `mo.image()` and others.
+4. Do not use `print()` for any output in notebooks, instead use Marimo's native functions or return values from cells.
+5. For slow iterative computations, use `mo.status.progress_bar(iterator)` to display progress bars. Avoid verbose console output.
+6. Let notebook cells display their results directly when possible. Avoid verbose console output.
+7. Use consistent mathematical notation across code, plots, and explanations.
+8. Keep notebooks focused on exploration and analysis. Move reusable logic into regular Python modules.
+9. Preserve existing `.ipynb` notebooks unless migration is explicitly requested.
+
+## Plotting
+
+1. Use Plotly Express for quick visualizations where possible. Only if Plotly Express does not support the required functionality, use Plotly's `graph_objects` API.
+2. Do not use any other plotting libraries, wrappers or custom styles. Stick to built-in style and color palettes.
+3. Always label axes, legends, and titles. Use clear and descriptive labels. Avoid generic labels such as "x", "y", or "value". Axes, legends and titles should be capitalized and use sentence case. Avoid all caps, camel case, or snake case.
+
 
 ## Writing
 
