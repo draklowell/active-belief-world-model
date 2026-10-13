@@ -15,10 +15,10 @@ task under controlled resets.
 
 An example result table:
 
-| task_id | application | seed | baseline_success | active_success |
-| --- | --- | --- | --- | --- |
-| task_001 | editor | 2026 | 0 | 1 |
-| task_002 | browser | 2026 | 1 | 1 |
+| task_id  | application | seed | baseline_success | active_success |
+| -------- | ----------- | ---- | ---------------- | -------------- |
+| task_001 | editor      | 2026 | 0                | 1              |
+| task_002 | browser     | 2026 | 1                | 1              |
 
 These rows are **illustrative**, not observed OSWorld results. Report the number
 of distinct tasks and aggregation over repeated evaluations explicitly.

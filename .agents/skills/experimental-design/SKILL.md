@@ -107,13 +107,13 @@ Use a matched backbone, prompt, action space, observation protocol, world-model
 inputs, task IDs, versions, and budget unless explicitly studying one of them.
 An illustrative ablation for Active Belief World Models is:
 
-| Condition | World-model information | Active belief policy |
-| --- | --- | --- |
-| Base agent | None | Disabled |
-| Text | Predicted textual transition | Disabled |
-| Image | Predicted next observation | Disabled |
-| Text + image | Both outputs | Disabled |
-| Active belief | Matched text + image | Enabled |
+| Condition     | World-model information      | Active belief policy |
+| ------------- | ---------------------------- | -------------------- |
+| Base agent    | None                         | Disabled             |
+| Text          | Predicted textual transition | Disabled             |
+| Image         | Predicted next observation   | Disabled             |
+| Text + image  | Both outputs                 | Disabled             |
+| Active belief | Matched text + image         | Enabled              |
 
 Do not attribute a gain to belief-state reasoning if several conditions change
 simultaneously. Report additional inference cost, calls, and latency alongside

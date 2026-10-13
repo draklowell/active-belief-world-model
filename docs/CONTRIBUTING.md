@@ -40,13 +40,13 @@ macro-F1 0.94 -> 0.96, CV std 0.02. Details: results/experiments.md
 
 ### Before / after
 
-| Before | After |
-|---|---|
-| `update` | `fix: handle empty test split when a class has <5 samples` |
-| `fix bug` | `fix: stratify train/test split so rare classes aren't dropped entirely` |
-| `asdf` | `chore: remove unused import in evaluate.py` |
-| `final version FINAL` | `docs: fill in results table with run_experiment.py output` |
-| `changes` | `refactor: move confusion-matrix plotting out of cli.py into evaluate.py` |
+| Before                | After                                                                     |
+| --------------------- | ------------------------------------------------------------------------- |
+| `update`              | `fix: handle empty test split when a class has <5 samples`                |
+| `fix bug`             | `fix: stratify train/test split so rare classes aren't dropped entirely`  |
+| `asdf`                | `chore: remove unused import in evaluate.py`                              |
+| `final version FINAL` | `docs: fill in results table with run_experiment.py output`               |
+| `changes`             | `refactor: move confusion-matrix plotting out of cli.py into evaluate.py` |
 
 ## Authorship
 
@@ -57,12 +57,14 @@ macro-F1 0.94 -> 0.96, CV std 0.02. Details: results/experiments.md
   ```
   Co-authored-by: Name <email@example.com>
   ```
+
 - **AI-assisted commits**: the commit is made by a **human**, under their own name,
   and that person should be able to explain every line in it — "the AI wrote it" is
   not an explanation a reviewer will accept. If AI tooling produced a substantial part
   of a change, add an `Assisted-by: <tool>` trailer to say so. Don't add the AI tool as
   a `Co-authored-by:` — that implies an accountable collaborator, which a tool isn't;
   the human who ran it and reviewed the output is the author.
+
 - **Even contribution is a pattern across the whole semester, not a last-week fix.**
   Rewriting history to look evenly distributed right before submission is visible
   (timestamps, force-push history if the remote allows it) and defeats the actual

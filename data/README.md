@@ -40,22 +40,22 @@ presenting it as your own collected data in anything beyond a course project con
 
 ## Schema
 
-| Column | Type | Description | Units |
-|---|---|---|---|
-| `alcohol` | float | Alcohol content | % vol |
-| `malic_acid` | float | Malic acid | g/L |
-| `ash` | float | Ash | g/L |
-| `alcalinity_of_ash` | float | Alkalinity of ash | — |
-| `magnesium` | float | Magnesium | mg/L |
-| `total_phenols` | float | Total phenols | — |
-| `flavanoids` | float | Flavanoids | — |
-| `nonflavanoid_phenols` | float | Non-flavanoid phenols | — |
-| `proanthocyanins` | float | Proanthocyanins | g/L |
-| `color_intensity` | float | Color intensity | — |
-| `hue` | float | Hue | — |
-| `od280/od315_of_diluted_wines` | float | OD280/OD315 of diluted wines (protein content proxy) | — |
-| `proline` | float | Proline | mg/L |
-| `target` | int | Cultivar: `0`, `1`, or `2` | — |
+| Column                         | Type  | Description                                          | Units |
+| ------------------------------ | ----- | ---------------------------------------------------- | ----- |
+| `alcohol`                      | float | Alcohol content                                      | % vol |
+| `malic_acid`                   | float | Malic acid                                           | g/L   |
+| `ash`                          | float | Ash                                                  | g/L   |
+| `alcalinity_of_ash`            | float | Alkalinity of ash                                    | —     |
+| `magnesium`                    | float | Magnesium                                            | mg/L  |
+| `total_phenols`                | float | Total phenols                                        | —     |
+| `flavanoids`                   | float | Flavanoids                                           | —     |
+| `nonflavanoid_phenols`         | float | Non-flavanoid phenols                                | —     |
+| `proanthocyanins`              | float | Proanthocyanins                                      | g/L   |
+| `color_intensity`              | float | Color intensity                                      | —     |
+| `hue`                          | float | Hue                                                  | —     |
+| `od280/od315_of_diluted_wines` | float | OD280/OD315 of diluted wines (protein content proxy) | —     |
+| `proline`                      | float | Proline                                              | mg/L  |
+| `target`                       | int   | Cultivar: `0`, `1`, or `2`                           | —     |
 
 ## `data/raw/` vs. `data/interim/` vs. `data/processed/`
 
@@ -116,7 +116,7 @@ samples from one region as if it said something universal about wine chemistry.
 sha256 of the exact file this project was built and tested against. Regenerate and
 compare with `uv run python scripts/download_data.py`.
 
----
+______________________________________________________________________
 
 ## If your project's data is too large or private for this pattern
 
