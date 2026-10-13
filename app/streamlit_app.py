@@ -39,16 +39,34 @@ FEATURE_SPECS = [
 
 @st.cache_resource
 def get_config():
+    """Load and cache the default project config."""
     return load_config("config/default.yaml")
 
 
 @st.cache_resource
 def get_model(_config):
+    """Load and cache the trained model, downloading from Hub if not found locally.
+
+    Args:
+        _config: Loaded project configuration dict (underscore prefix prevents Streamlit
+            from hashing it).
+
+    Returns:
+        A fitted scikit-learn estimator.
+    """
     return load_model(_config["paths"]["model"], _config["huggingface"]["repo_id"])
 
 
 @st.cache_data
 def get_test_samples(_config):
+    """Load the test split and cache it for random sample drawing.
+
+    Args:
+        _config: Loaded project configuration dict.
+
+    Returns:
+        The held-out test split as a Polars DataFrame.
+    """
     df = load_raw_csv(_config["paths"]["raw_data"])
     _train_df, test_df = train_test_split_stratified(
         df, test_size=_config["split"]["test_size"], seed=_config["seed"]
@@ -57,6 +75,7 @@ def get_test_samples(_config):
 
 
 def main() -> None:
+    """Render the Streamlit demo page: feature inputs, random-sample fill, and prediction."""
     st.set_page_config(page_title="Wine cultivar classifier", page_icon="\U0001f377")
     st.title("\U0001f377 Wine cultivar classifier")
     st.caption(

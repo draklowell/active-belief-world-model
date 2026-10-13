@@ -9,11 +9,7 @@ import numpy as np
 import polars as pl
 
 from wine_origin.config import load_config
-from wine_origin.data import (
-    materialize_raw_csv,
-    split_features_target,
-    train_test_split_stratified,
-)
+from wine_origin.data import materialize_raw_csv, split_features_target, train_test_split_stratified
 from wine_origin.models import build_active_model, build_baseline
 
 

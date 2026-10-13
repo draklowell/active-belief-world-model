@@ -10,20 +10,16 @@ TARGET_COLUMN = "target"
 
 
 def materialize_raw_csv(output_path: str | Path) -> pl.DataFrame:
-    """Load ``sklearn``'s built-in wine dataset and write it to ``output_path`` as CSV.
+    """Load sklearn's built-in wine dataset and write it to ``output_path`` as CSV.
 
-    This is the one place the dataset is fetched from ``sklearn`` — everything else in
-    the project reads the CSV, so the pipeline works the same way it would for a
-    dataset that came from a file instead of a Python package.
+    This is the one place the dataset is fetched from sklearn. Everything else in the
+    project reads the CSV, so the pipeline works the same way it would for a dataset
+    that came from a file instead of a Python package.
 
-    Parameters
-    ----------
-    output_path : str or Path
-        Where to write the CSV, e.g. ``data/raw/wine.csv``.
+    Args:
+        output_path: Where to write the CSV, e.g. ``data/raw/wine.csv``.
 
-    Returns
-    -------
-    polars.DataFrame
+    Returns:
         The 13 feature columns plus a ``target`` column (0/1/2, one per cultivar).
     """
     bunch = load_wine()
@@ -40,12 +36,14 @@ def materialize_raw_csv(output_path: str | Path) -> pl.DataFrame:
 def load_raw_csv(path: str | Path) -> pl.DataFrame:
     """Read the materialized dataset back from disk.
 
-    Raises
-    ------
-    FileNotFoundError
-        With a hint to run `python scripts/download_data.py` — this is the error
-        message a student sees immediately after cloning the repo, so it should say
-        what to do next.
+    Args:
+        path: Path to the CSV file written by ``materialize_raw_csv``.
+
+    Returns:
+        The full dataset as a Polars DataFrame.
+
+    Raises:
+        FileNotFoundError: With a hint to run ``python scripts/download_data.py``.
     """
     path = Path(path)
     if not path.exists():
@@ -56,7 +54,14 @@ def load_raw_csv(path: str | Path) -> pl.DataFrame:
 
 
 def split_features_target(df: pl.DataFrame) -> tuple[pl.DataFrame, pl.Series]:
-    """Split a dataframe into feature columns ``X`` and the ``target`` series ``y``."""
+    """Split a dataframe into feature columns X and the target series y.
+
+    Args:
+        df: A dataframe that contains a column named ``target``.
+
+    Returns:
+        A tuple of (feature dataframe, target series).
+    """
     X = df.drop(TARGET_COLUMN)
     y = df[TARGET_COLUMN]
     return X, y
@@ -67,10 +72,16 @@ def train_test_split_stratified(
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Stratified train/test split so all three classes stay proportionally represented.
 
-    Why this matters: with an unstratified split, a small or imbalanced dataset (this
-    one has 178 samples across 3 classes) can easily leave the test set with too few
-    examples of the smallest class to measure anything meaningful about it — or, in
-    the worst case, none at all.
+    With an unstratified split, a small dataset (178 samples across 3 classes) can
+    easily leave the test set with too few examples of the smallest class, or none at all.
+
+    Args:
+        df: The full dataset including the ``target`` column.
+        test_size: Fraction of rows to put in the test split.
+        seed: Random state for reproducibility.
+
+    Returns:
+        A tuple of (train dataframe, test dataframe).
     """
     train_df, test_df = train_test_split(
         df,

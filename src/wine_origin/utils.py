@@ -14,22 +14,12 @@ import numpy as np
 def set_seed(seed: int) -> None:
     """Fix every source of randomness this project uses.
 
-    Why this matters: a "reproducible" result that only sets ``numpy``'s seed but not
-    Python's ``random`` module (or vice versa) is not actually reproducible — whichever
-    one you forgot will silently drift between runs. Extend this function, don't
-    scatter extra ``.seed()`` calls elsewhere, whenever a new source of randomness is
-    introduced.
+    A "reproducible" result that only sets numpy's seed but not Python's random module
+    is not actually reproducible. Extend this function whenever a new source of
+    randomness is introduced; do not scatter extra seed calls elsewhere.
 
-    Parameters
-    ----------
-    seed : int
-        Seed value applied to ``random`` and ``numpy``.
-
-    Notes
-    -----
-    If you add PyTorch: ``torch.manual_seed(seed)`` and, for full GPU determinism,
-    ``torch.use_deterministic_algorithms(True)``. If you add TensorFlow:
-    ``tf.random.set_seed(seed)``. Neither is a dependency of this project.
+    Args:
+        seed: Seed value applied to ``random`` and ``numpy``.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -52,13 +42,10 @@ def _git_commit_hash() -> str:
 def env_info() -> dict[str, Any]:
     """Capture a fingerprint of the environment a run happened in.
 
-    This is what turns "it worked on my machine" into something checkable: it gets
-    written into ``results/metrics.json`` alongside the metrics, so anyone reading the
-    results table can see exactly what produced it and try to reproduce it.
+    Gets written into ``results/metrics.json`` alongside the metrics, so anyone
+    reading the results table can see exactly what produced it and try to reproduce it.
 
-    Returns
-    -------
-    dict
+    Returns:
         Python/OS/platform info, versions of the key libraries this project depends
         on, and the current git commit hash (``"unknown"`` outside a git repo).
     """
@@ -81,9 +68,8 @@ def _safe_version(package: str) -> str:
 def setup_logging(level: str = "INFO") -> None:
     """Configure root logging once, at the format every CLI command shares.
 
-    Why this matters: ``print`` statements can't be turned off, filtered by severity,
-    or redirected — the first time you need to silence noisy library output while
-    debugging your own code, you'll wish everything used ``logging`` instead.
+    Args:
+        level: A logging level name such as ``"INFO"`` or ``"DEBUG"``.
     """
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
