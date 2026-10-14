@@ -137,7 +137,7 @@ uv run black src/ scripts/ tests/ app/ && uv run isort src/ scripts/ tests/ app/
 uv run pytest                         # full test suite
 uv run ty check                       # type-check src/, scripts/, tests/, and app/
 uv run pre-commit run --all-files      # existing hooks
-uv run jupyter lab notebooks/          # existing Jupyter notebooks use the project kernel
+uv run jupyter lab notebooks/          # open notebooks with the project kernel
 ```
 
 Pre-commit hooks (installed by `make setup`) catch most of this before you even open a PR — see `.pre-commit-config.yaml`.
@@ -146,13 +146,15 @@ The ty hook checks all first-party Python code on every commit using the project
 
 ### Research notebooks
 
-marimo is preferred for new research notebooks. Save them as `.py` files in `notebooks/`
-and track them directly in Git. Existing `.ipynb` notebooks remain supported with Jupyter.
-Both use the uv project environment and dependencies from `pyproject.toml`.
+Use JupyterLab for research notebooks. Save them as `.ipynb` files in `notebooks/`
+and use the project's Python 3.14 kernel and dependencies from `pyproject.toml`.
+See `notebooks/00_jupyter_example.ipynb` for an interactive example and
+`notebooks/README.md` for notebook conventions. Restart the kernel and run all
+cells in order before delivering changes.
 
 ```bash
-uv run marimo edit notebooks/00_marimo_example.py
-uv run marimo check notebooks/00_marimo_example.py
+uv run jupyter lab notebooks/
+uv run jupyter nbconvert --to notebook --execute --inplace notebooks/00_jupyter_example.ipynb
 ```
 
 > [!note] Why this matters: CI enforces it instead of "we agreed to"

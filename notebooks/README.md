@@ -1,12 +1,11 @@
 # Notebook conventions
 
-New research notebooks use marimo and are saved as `NN_name.py` (see `00_marimo_example.py`). Existing `NN-kebab-case-name.ipynb` notebooks remain supported with Jupyter; the conventions below describe those notebooks.
+Research notebooks use Jupyter and are saved as `.ipynb` files in this folder. Use `NN_name.ipynb` for new notebooks and preserve existing filenames. See `00_jupyter_example.ipynb` for an interactive example using IPython display and `ipywidgets`.
 
 1. **A notebook is a draft and a narrative, not the source of truth.** Working code that's used more than once belongs in `src/wine_origin/`, and the notebook imports it — the rule of thumb is: if a function is needed twice, it belongs in `src/`, not copy-pasted between notebooks.
 2. **Every notebook opens with a markdown cell**: Goal, Input, Conclusion. The Conclusion is written **after** the analysis, once you know what the results actually say — not drafted in advance and left unchanged.
 3. **`Restart & Run All` before committing.** A notebook that doesn't run cleanly top to bottom doesn't get committed — a notebook full of out-of-order cell numbers is a common source of "works on my machine, mysteriously not on yours."
 4. **Outputs are committed.** This course's convention is to keep cell outputs in the `.ipynb` file (not strip them), so plots and tables are visible directly on GitHub without anyone having to re-run the notebook first. The tradeoff is merge conflicts (see rule 5) and file size — keep figures reasonably sized, don't `df.head(10000)` into a cell.
-   - `.pre-commit-config.yaml` ships an `nbstripout` hook that would strip outputs on commit — it's **disabled by default** to match this convention. If your team decides the conflict pain outweighs the benefit, there are instructions in that file for turning it on.
 5. **Notebooks and git merges don't mix well.** The underlying JSON makes conflicts nearly unreadable, and git can't meaningfully merge two people's changes to the same notebook. Practical rule: one notebook, one author, at a time. If two people need to work on the same analysis, split it into two notebooks or hand it off explicitly rather than editing in parallel.
 6. **Python environment.** From the repository root, run `uv python install 3.14`, `uv sync`, and `uv run jupyter lab notebooks/`. Select the project's Python 3.14 kernel. The "Open in Colab" badges remain, but a hosted Colab kernel using another Python version cannot run this project; use a local Python 3.14 runtime prepared with uv instead. Each notebook checks the kernel version before importing project dependencies.
 

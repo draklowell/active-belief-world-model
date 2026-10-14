@@ -7,15 +7,15 @@ description: >-
   sequential plans, and compute budgets. Produce a reviewable experiment plan
   and do not start expensive runs without user authorization.
 allowed-tools: Read Write Edit Bash Glob Grep WebSearch WebFetch Python Task
-compatibility: >-
-  Codex and compatible agents. Project target is Python 3.14, uv, NumPy,
-  Polars, marimo, pytest, Black, isort, flake8, ty, and pre-commit.
-  Tool names depend on the agent host. No automatic downloads or installations.
 license: MIT
 metadata:
   version: "3.0-project-adaptation"
   adapted-from: "K-Dense-AI/scientific-agent-skills/skills/experimental-design"
   upstream-author: "K-Dense Inc."
+  compatibility: >-
+    Codex and compatible agents. Project target is Python 3.14, uv, NumPy,
+    Polars, JupyterLab, pytest, Black, isort, flake8, ty, and pre-commit.
+    Tool names depend on the agent host. No automatic downloads or installations.
 ---
 
 # Experimental Design for Computer-Use and ML Research
@@ -84,8 +84,13 @@ uncached managed Python interpreter is available without downloading it.
   comments, unused abstractions, and private-name prefixes for new helpers.
 - Use four-digit seeds, e.g. `2026`, for new experiments. Preserve original
   seeds when reproducing previous findings.
-- Use marimo `.py` files for new exploratory notebooks. Preserve existing
-  `.ipynb` files unless explicitly asked to migrate them.
+- Use Jupyter `.ipynb` files in `notebooks/` for exploratory analysis and keep
+  reusable logic in regular Python modules. Launch with
+  `uv run --no-sync jupyter lab notebooks/` using the project's Python 3.14
+  kernel. Use Markdown cells for narrative, IPython display for computed text
+  and images, and `ipywidgets` for interactive controls. Restart the kernel
+  and run all cells in order before delivery; follow `notebooks/README.md`
+  for naming and output conventions.
 - Use `.artifacts/` for temporary plans, per-run results, CSVs, analysis,
   troubleshooting notes, and logs; ensure `.artifacts/` is gitignored. Do not
   store secrets or unnecessary copies of large datasets. Promote validated
