@@ -2729,7 +2729,7 @@ dev = [
 requires-dist = [
     { name = "huggingface-hub", specifier = "==1.27.0" },
     { name = "joblib", specifier = "==1.5.3" },
-    { name = "kaleido" },
+    { name = "kaleido", specifier = "==1.5.0" },
     { name = "numpy", specifier = "==2.5.2" },
     { name = "plotly", specifier = "==7.1.0" },
     { name = "plotly-express", specifier = "==0.4.1" },
