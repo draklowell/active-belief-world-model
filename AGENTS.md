@@ -164,15 +164,17 @@ Report failures rather than weakening checks to make them pass.
 
 ## Notebooks
 
-1. Use Jupyter for notebooks. Store them as `.ipynb` files in `notebooks/` and launch JupyterLab from the repository root with `uv run jupyter lab notebooks/`. Select the project's Python 3.14 kernel.
-2. Use dedicated Markdown cells for static explanatory text. Avoid generating narrative paragraphs through `print()` or other output wrappers.
-3. If narrative text has to be generated programmatically (e.g., for reporting variables), use `IPython.display.Markdown` with `display()`. Use `IPython.display.Image` for images and `ipywidgets` for interactive controls.
-4. Do not use `print()` for output in notebooks. Use cell return values or `IPython.display.display()` for multiple outputs.
-5. For slow iterative computations, use `tqdm.notebook.tqdm(iterator)` to display progress bars. Avoid verbose console output.
-6. Let notebook cells display their results directly when possible. Avoid verbose console output.
-7. Use consistent mathematical notation across code, plots, and explanations.
-8. Keep notebooks focused on exploration and analysis. Move reusable logic into regular Python modules.
-9. Restart the kernel and run all cells in order before delivering notebook changes. Preserve existing outputs unless they become stale after a code change, and follow `notebooks/README.md` for naming and output conventions.
+01. Use Jupyter for notebooks. Store them as `.ipynb` files in `notebooks/`. Use a Python 3.14 kernel with the project's dependencies, locally or remotely. Launch a local JupyterLab session from the repository root with `uv run jupyter lab notebooks/` when appropriate.
+02. Use dedicated Markdown cells for static explanatory text. Avoid generating narrative paragraphs through `print()` or other output wrappers.
+03. If narrative text has to be generated programmatically (e.g., for reporting variables), use `IPython.display.Markdown` with `display()`. Use `IPython.display.Image` for images and `ipywidgets` for interactive controls.
+04. Do not use `print()` for output in notebooks. Use cell return values or `IPython.display.display()` for multiple outputs.
+05. For slow iterative computations, use `tqdm.notebook.tqdm(iterator)` to display progress bars. Avoid verbose console output.
+06. Let notebook cells display their results directly when possible. Avoid verbose console output.
+07. Use consistent mathematical notation across code, plots, and explanations.
+08. Keep notebooks focused on exploration and analysis. Move reusable logic into regular Python modules.
+09. Inspect notebook code and metadata for hardware, data, dependency, side effect, and runtime requirements before execution. Prefer an existing configured remote kernel with the required environment when available. Use a local kernel only for verified lightweight CPU notebooks.
+10. Do not automatically rerun notebooks requiring a GPU, model training or fine-tuning, or other expensive computation, locally or remotely. Such runs require explicit user authorization and suitable compute.
+11. When execution is appropriate, restart the selected kernel and run all cells in order. If suitable compute is unavailable, requirements are unclear, or a run is not authorized, validate notebook schema and code syntax without executing cells. Preserve saved outputs when skipping execution and report that execution was not run, why it was skipped, and which outputs may be stale. Follow `notebooks/README.md` for naming and output conventions.
 
 ## Plotting
 

@@ -147,14 +147,25 @@ The ty hook checks all first-party Python code on every commit using the project
 ### Research notebooks
 
 Use JupyterLab for research notebooks. Save them as `.ipynb` files in `notebooks/`
-and use the project's Python 3.14 kernel and dependencies from `pyproject.toml`.
+and use a Python 3.14 kernel with the dependencies from `pyproject.toml`.
 See `notebooks/00_jupyter_example.ipynb` for an interactive example and
-`notebooks/README.md` for notebook conventions. Restart the kernel and run all
-cells in order before delivering changes.
+`notebooks/README.md` for notebook conventions.
+
+Before rerunning a notebook, inspect its code and metadata for compute and environment
+requirements. Prefer an existing configured remote kernel with the required environment
+when available. Use a local kernel only for verified lightweight CPU notebooks, such as
+the interactive example. Do not automatically rerun GPU, model training or fine-tuning,
+or other expensive notebooks, locally or remotely; these runs require explicit user
+authorization and suitable compute.
+
+When execution is appropriate, restart the selected kernel and run all cells in order.
+If suitable compute is unavailable, requirements are unclear, or execution is not
+authorized, validate notebook schema and code syntax without executing cells. Preserve
+saved outputs and report that execution was not run, the reason, and any potentially
+stale outputs.
 
 ```bash
 uv run jupyter lab notebooks/
-uv run jupyter nbconvert --to notebook --execute --inplace notebooks/00_jupyter_example.ipynb
 ```
 
 > [!note] Why this matters: CI enforces it instead of "we agreed to"
