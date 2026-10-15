@@ -10,7 +10,7 @@ requires-python = ">=3.14,<3.15"
 readme = "README.md"
 license = { text = "MIT" }
 dependencies = [
-    "numpy==2.5.2",
+    "numpy>=1.26,<2",
     "polars==2.0.0",
     "scikit-learn==1.9.1",
     "joblib==1.5.3",
@@ -20,6 +20,8 @@ dependencies = [
     "plotly==7.1.0",
     "plotly-express==0.4.1",
     "kaleido==1.5.0",
+    "desktop-env==1.0.2",
+    "torch==2.14.1+cpu",
 ]
 
 [dependency-groups]
@@ -47,6 +49,32 @@ where = ["src"]
 [tool.uv]
 required-version = ">=0.13.0"
 python-preference = "only-managed"
+exclude-dependencies = [
+    { package = { name = "desktop-env" }, dependencies = [
+        "torch",
+        "transformers",
+        "accelerate",
+        "openai",
+        "anthropic",
+        "google-genai",
+        "google-generativeai",
+        "groq",
+        "dashscope",
+        "ag2",
+        "ui-tars",
+        "parallel-web",
+        "paddlepaddle"
+    ]}
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [tool.black]
 line-length = 100
