@@ -10,7 +10,6 @@ requires-python = ">=3.14,<3.15"
 readme = "README.md"
 license = { text = "MIT" }
 dependencies = [
-    "numpy==2.5.2",
     "polars==2.0.0",
     "scikit-learn==1.9.1",
     "joblib==1.5.3",
@@ -19,7 +18,8 @@ dependencies = [
     "huggingface_hub==1.27.0",
     "plotly==7.1.0",
     "plotly-express==0.4.1",
-    "kaleido",
+    "kaleido==1.5.0",
+    "numpy~=1.26.0",
 ]
 
 [dependency-groups]
