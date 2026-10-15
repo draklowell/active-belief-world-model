@@ -1,4 +1,5 @@
-import argparse
+import dataclasses
+import json
 import logging
 import os
 import subprocess
@@ -13,6 +14,67 @@ logging.basicConfig(
     stream=sys.stdout,
     force=True,
 )
+
+
+@dataclasses.dataclass
+class ServerConfig:
+    """Configuration for the vLLM + Tailscale inference server.
+
+    Attributes:
+        hostname: Tailscale hostname to advertise.
+        tailscale_auth_key: Tailscale auth key for login.
+        hf_token: Hugging Face token for model downloads.
+        model: Hugging Face model identifier to serve.
+        served_model_name: API alias exposed by the OpenAI-compatible endpoint.
+        port: Port the inference server listens on.
+        host: Bind address for the inference server.
+        max_model_len: Maximum context length in tokens.
+        tensor_parallel_size: Number of GPUs for tensor parallelism.
+        socks5_port: SOCKS5 proxy port exposed by tailscaled.
+        skip_install: Skip dependency installation steps when True.
+    """
+
+    hostname: str
+    tailscale_auth_key: str
+    hf_token: str
+    model: str
+    served_model_name: str
+    port: int = 8000
+    host: str = "0.0.0.0"
+    max_model_len: int = 16384
+    tensor_parallel_size: int = 1
+    socks5_port: int = 1055
+    skip_install: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ServerConfig":
+        """Construct a ServerConfig from a dictionary, ignoring unknown keys.
+
+        Args:
+            data: Mapping of config field names to values.
+
+        Returns:
+            A populated ServerConfig instance with defaults for omitted fields.
+        """
+        known = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+
+CONFIG_JSON: str = """{}"""
+
+
+def load_config() -> ServerConfig:
+    """Load embedded server configuration.
+
+    Returns:
+        A ServerConfig instance parsed from the embedded CONFIG_JSON string.
+    """
+    data = json.loads(CONFIG_JSON)
+    if not data:
+        raise RuntimeError(
+            "Embedded CONFIG_JSON is empty. Run through host_inference_server.py to embed config."
+        )
+    return ServerConfig.from_dict(data)
 
 
 class TailscaleManager:
@@ -83,10 +145,7 @@ class TailscaleManager:
 
     def _stream_daemon_logs(self, process: subprocess.Popen) -> None:
         if process.stdout is None:
-            raise RuntimeError(
-                "tailscaled stdout is not available for log streaming, use stdout=PIPE in Popen."
-            )
-
+            return
         for line in process.stdout:
             self._log.info("[tailscaled] %s", line.decode(errors="replace").rstrip())
 
@@ -148,12 +207,14 @@ class TailscaleManager:
 class VLLMManager:
     """Manages vLLM installation and the inference server process.
 
-    The inference server is started once. If vLLM exits for any reason,
-    the manager signals the caller via the stop event rather than restarting.
+    The inference server is started once. If the vLLM process exits for any reason,
+    the manager signals the caller via the provided stop event rather than restarting.
 
     Attributes:
         model: The Hugging Face model identifier to serve.
         served_model_name: The name exposed by the OpenAI-compatible API.
+        hf_token: The Hugging Face token set when launching the vLLM subprocess.
+        tensor_parallel_size: Number of GPUs used for tensor parallelism.
         port: The port the inference server listens on.
         host: The host address the inference server binds to.
         max_model_len: The maximum sequence length in tokens.
@@ -161,6 +222,8 @@ class VLLMManager:
     Args:
         model: The Hugging Face model identifier.
         served_model_name: The alias exposed via the API.
+        hf_token: Hugging Face token for authenticated model downloads.
+        tensor_parallel_size: Number of GPUs for tensor parallelism.
         port: Port number for the inference server.
         host: Bind address for the inference server.
         max_model_len: Maximum context length in tokens.
@@ -168,62 +231,59 @@ class VLLMManager:
 
     model: str
     served_model_name: str
+    hf_token: str
+    tensor_parallel_size: int
     port: int
     host: str
     max_model_len: int
 
     def __init__(
         self,
-        model: str = "Qwen/Qwen3-VL-4B-Instruct",
-        served_model_name: str = "gpt4-o",
+        model: str,
+        served_model_name: str,
+        hf_token: str,
+        tensor_parallel_size: int = 1,
         port: int = 8000,
         host: str = "0.0.0.0",
         max_model_len: int = 16384,
     ) -> None:
         self.model = model
         self.served_model_name = served_model_name
+        self.hf_token = hf_token
+        self.tensor_parallel_size = tensor_parallel_size
         self.port = port
         self.host = host
         self.max_model_len = max_model_len
         self._log = logging.getLogger("VLLMManager")
         self._process: subprocess.Popen | None = None
-        self._stop_event: threading.Event | None = None
-        self._thread: threading.Thread | None = None
+        self._thread: subprocess.Popen | None = None
+        self._managed_thread: threading.Thread | None = None
 
     def install(self) -> None:
-        """Create project, install vllm and vllm-omni via uv."""
-        self._log.info("Creating project...")
-        subprocess.run(
-            ["uv", "init"],
-            check=True,
-        )
+        """Install vllm and vllm-omni via pip."""
         self._log.info("Installing vllm and vllm-omni...")
         subprocess.run(
-            ["uv", "add", "vllm==0.30.0", "vllm-omni==0.30.0"],
+            ["pip", "install", "vllm==0.30.0", "vllm-omni==0.30.0"],
             check=True,
         )
         self._log.info("vllm and vllm-omni installed successfully.")
 
     def _stream_logs(self, process: subprocess.Popen) -> None:
         if process.stdout is None:
-            raise RuntimeError(
-                "vllm stdout is not available for log streaming, use stdout=PIPE in Popen."
-            )
-
+            return
         for line in process.stdout:
             self._log.info("[vllm] %s", line.decode(errors="replace").rstrip())
 
     def _run(self, external_stop_event: threading.Event) -> None:
         self._log.info(
-            "Starting vLLM inference server: model=%s, host=%s, port=%d",
+            "Starting vLLM inference server: model=%s, host=%s, port=%d, tensor_parallel_size=%d",
             self.model,
             self.host,
             self.port,
+            self.tensor_parallel_size,
         )
         self._process = subprocess.Popen(
             [
-                "uv",
-                "run",
                 "vllm",
                 "serve",
                 self.model,
@@ -236,8 +296,10 @@ class VLLMManager:
                 str(self.max_model_len),
                 "--served-model-name",
                 self.served_model_name,
+                "--tensor-parallel-size",
+                str(self.tensor_parallel_size),
             ],
-            env={**os.environ, "VLLM_TORCH_COMPILE": "0"},
+            env={**os.environ, "VLLM_TORCH_COMPILE": "0", "HF_TOKEN": self.hf_token},
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
@@ -260,17 +322,15 @@ class VLLMManager:
         """Start the vLLM inference server in a background thread.
 
         Args:
-            external_stop_event: Event that gets set if vLLM exits, signalling the
-                caller to shut down.
+            external_stop_event: Event set when vLLM exits, signalling the caller to shut down.
         """
-        self._stop_event = external_stop_event
-        self._thread = threading.Thread(
+        self._managed_thread = threading.Thread(
             target=self._run,
             args=(external_stop_event,),
             name="VLLMManager",
             daemon=True,
         )
-        self._thread.start()
+        self._managed_thread.start()
         self._log.info("VLLMManager thread started.")
 
     def stop(self) -> None:
@@ -283,75 +343,42 @@ class VLLMManager:
             except subprocess.TimeoutExpired:
                 self._log.warning("vLLM did not exit cleanly, killing it.")
                 self._process.kill()
-        if self._thread is not None:
-            self._thread.join()
+        if self._managed_thread is not None:
+            self._managed_thread.join()
         self._log.info("VLLMManager stopped.")
 
     def is_alive(self) -> bool:
         """Return whether the vLLM server thread is still running."""
-        return self._thread is not None and self._thread.is_alive()
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Start a Tailscale-connected vLLM inference server."
-    )
-    parser.add_argument("--hostname", required=True, help="Tailscale hostname to advertise.")
-    parser.add_argument("--auth-key", required=True, help="Tailscale auth key.")
-    parser.add_argument(
-        "--socks5-port",
-        type=int,
-        default=1055,
-        help="SOCKS5 proxy port for tailscaled (default: 1055).",
-    )
-    parser.add_argument(
-        "--model", default="Qwen/Qwen3-VL-4B-Instruct", help="Hugging Face model ID to serve."
-    )
-    parser.add_argument(
-        "--served-model-name",
-        default="qwen",
-        help="Model alias exposed via the API (default: qwen).",
-    )
-    parser.add_argument("--port", type=int, default=8000, help="vLLM server port (default: 8000).")
-    parser.add_argument(
-        "--host", default="0.0.0.0", help="vLLM server bind address (default: 0.0.0.0)."
-    )
-    parser.add_argument(
-        "--max-model-len",
-        type=int,
-        default=16384,
-        help="Maximum context length in tokens (default: 16384).",
-    )
-    parser.add_argument(
-        "--skip-install",
-        action="store_true",
-        help="Skip installation steps (useful when dependencies are already present).",
-    )
-    return parser.parse_args()
+        return self._managed_thread is not None and self._managed_thread.is_alive()
 
 
 def main() -> None:
-    """Entry point: install dependencies, start Tailscale and vLLM, then wait."""
+    """Load config, start Tailscale and vLLM in parallel, and wait for shutdown."""
     log = logging.getLogger("main")
-    args = parse_args()
+    config = load_config()
+    log.info(
+        "Loaded config: model=%s, hostname=%s, tensor_parallel_size=%d",
+        config.model,
+        config.hostname,
+        config.tensor_parallel_size,
+    )
 
     tailscale = TailscaleManager(
-        hostname=args.hostname,
-        auth_key=args.auth_key,
-        socks5_port=args.socks5_port,
+        hostname=config.hostname,
+        auth_key=config.tailscale_auth_key,
+        socks5_port=config.socks5_port,
     )
     vllm = VLLMManager(
-        model=args.model,
-        served_model_name=args.served_model_name,
-        port=args.port,
-        host=args.host,
-        max_model_len=args.max_model_len,
+        model=config.model,
+        served_model_name=config.served_model_name,
+        hf_token=config.hf_token,
+        tensor_parallel_size=config.tensor_parallel_size,
+        port=config.port,
+        host=config.host,
+        max_model_len=config.max_model_len,
     )
 
-    log.info("Starting Tailscale and vLLM managers...")
-
-    if not args.skip_install:
+    if not config.skip_install:
         tailscale.install()
         vllm.install()
 
@@ -359,10 +386,9 @@ def main() -> None:
 
     tailscale.start()
     time.sleep(3)
-
     vllm.start(external_stop_event=shutdown_event)
 
-    log.info("Both services are running. Waiting for shutdown signal...")
+    log.info("Both services running. Waiting for shutdown signal...")
     try:
         shutdown_event.wait()
     except KeyboardInterrupt:
