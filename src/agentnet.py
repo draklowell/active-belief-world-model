@@ -24,14 +24,38 @@ STATUS_PATTERN = r"status=['\"](\w+)['\"]"
 
 
 def scan_jsonl(path: Path) -> pl.LazyFrame:
+    """Lazily scan a JSON Lines file into a Polars frame.
+
+    Args:
+        path: Path to a JSON Lines file.
+
+    Returns:
+        Lazy frame with the schema inferred from every row.
+    """
     return pl.scan_ndjson(path, infer_schema_length=None)
 
 
 def task_table(trajectories: pl.LazyFrame) -> pl.LazyFrame:
+    """Reduce trajectories to one row per task with its step count.
+
+    Args:
+        trajectories: Lazy frame with one row per task and a `traj` list column.
+
+    Returns:
+        Lazy frame without `traj` and with an `n_steps` column.
+    """
     return trajectories.with_columns(pl.col("traj").list.len().alias("n_steps")).drop("traj")
 
 
 def step_table(trajectories: pl.LazyFrame) -> pl.LazyFrame:
+    """Flatten trajectories into one row per step with parsed action fields.
+
+    Args:
+        trajectories: Lazy frame with one row per task and a `traj` list column.
+
+    Returns:
+        Lazy frame with one row per step, holding the action name, pointer coordinates and status.
+    """
     return (
         trajectories.select("task_id", "traj")
         .explode("traj")
@@ -52,15 +76,38 @@ def step_table(trajectories: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def pinned_commit() -> str:
+    """Read the dataset commit sha recorded in the revision file.
+
+    Returns:
+        Commit sha that the dataset files are pinned to.
+    """
     return REVISION_FILE.read_text().strip().split("@")[1]
 
 
 def segment_url(commit: str, disk: int, last_disk: int) -> str:
+    """Build the download URL of one segment of the image archive.
+
+    Args:
+        commit: Dataset commit sha.
+        disk: Zero based index of the segment.
+        last_disk: Index of the final segment, which is stored as `images.zip`.
+
+    Returns:
+        Direct download URL of the segment.
+    """
     part = "images.zip" if disk == last_disk else f"images.z{disk + 1:02d}"
     return f"https://huggingface.co/datasets/{REPO_ID}/resolve/{commit}/{IMAGE_SUBDIR}/{part}"
 
 
 def parse_central_directory(data: bytes) -> pl.DataFrame:
+    """Parse the entries of a zip central directory held in memory.
+
+    Args:
+        data: Raw bytes of the central directory.
+
+    Returns:
+        One row per entry with its name, CRC32, sizes, segment index and local header offset.
+    """
     rows = []
     position = 0
     while data[position : position + 4] == b"PK\x01\x02":
@@ -97,6 +144,15 @@ def parse_central_directory(data: bytes) -> pl.DataFrame:
 
 
 def read_zip_index(client: httpx.Client, url: str) -> pl.DataFrame:
+    """Fetch and parse the central directory of a remote zip with range requests.
+
+    Args:
+        client: HTTP client used for range requests.
+        url: URL of the final segment of the archive, which holds the central directory.
+
+    Returns:
+        One row per archive entry, as produced by parse_central_directory.
+    """
     size = int(client.head(url).headers["content-length"])
     tail = client.get(url, headers={"Range": f"bytes={size - INDEX_TAIL_BYTES}-{size - 1}"}).content
     locator = tail.rfind(b"PK\x06\x07")
@@ -109,6 +165,16 @@ def read_zip_index(client: httpx.Client, url: str) -> pl.DataFrame:
 
 
 def inflate_entry(chunk: bytes, compressed_bytes: int, crc32: int) -> bytes:
+    """Decompress one zip entry from its local header and verify its CRC32.
+
+    Args:
+        chunk: Bytes starting at the local file header of the entry.
+        compressed_bytes: Length of the compressed payload.
+        crc32: Expected CRC32 of the uncompressed content.
+
+    Returns:
+        Uncompressed bytes of the entry.
+    """
     name_len, extra_len = struct.unpack("<HH", chunk[26:30])
     start = 30 + name_len + extra_len
     data = zlib.decompress(chunk[start : start + compressed_bytes], -15)
@@ -120,12 +186,32 @@ def inflate_entry(chunk: bytes, compressed_bytes: int, crc32: int) -> bytes:
 def fetch_entry(
     client: httpx.Client, url: str, offset: int, compressed_bytes: int, crc32: int
 ) -> bytes:
+    """Download one zip entry with a range request and return its uncompressed bytes.
+
+    Args:
+        client: HTTP client used for range requests.
+        url: URL of the segment that holds the entry.
+        offset: Byte offset of the local file header of the entry.
+        compressed_bytes: Length of the compressed payload.
+        crc32: Expected CRC32 of the uncompressed content.
+
+    Returns:
+        Uncompressed bytes of the entry.
+    """
     end = offset + 30 + compressed_bytes + LOCAL_HEADER_SLACK
     chunk = client.get(url, headers={"Range": f"bytes={offset}-{end}"}).content
     return inflate_entry(chunk, compressed_bytes, crc32)
 
 
 def png_size(path: Path) -> tuple[int, int]:
+    """Read the width and height of a PNG file from its IHDR chunk.
+
+    Args:
+        path: Path to a PNG file.
+
+    Returns:
+        Width and height in pixels.
+    """
     with path.open("rb") as file:
         header = file.read(24)
     width, height = struct.unpack(">II", header[16:24])

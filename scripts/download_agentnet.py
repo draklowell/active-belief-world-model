@@ -19,6 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    """Download the requested AgentNet subsets and pin the dataset commit they came from.
+
+    The commit is resolved once from the requested revision, so all subsets share one snapshot.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--subsets", nargs="+", choices=list(SUBSET_FILES), default=["meta", "ubuntu"]

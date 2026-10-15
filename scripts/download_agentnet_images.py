@@ -33,6 +33,19 @@ logger = logging.getLogger(__name__)
 
 
 def sample_tasks(tasks: pl.DataFrame, n_tasks: int, seed: int) -> pl.DataFrame:
+    """Select a seeded, domain stratified sample of tasks.
+
+    Tasks are shuffled with the seed inside each domain, and the first share of each domain is kept.
+    The share is rounded up, so each domain contributes at least one task when it is non-empty.
+
+    Args:
+        tasks: Frame with one row per task, holding its task_id and domain.
+        n_tasks: Requested number of tasks across all domains.
+        seed: Seed of the shuffle.
+
+    Returns:
+        Sampled rows with task_id and domain, sorted by task_id.
+    """
     fraction = n_tasks / tasks.height
     shuffled = tasks.sort("task_id").sample(fraction=1.0, shuffle=True, seed=seed)
     return (
@@ -44,6 +57,10 @@ def sample_tasks(tasks: pl.DataFrame, n_tasks: int, seed: int) -> pl.DataFrame:
 
 
 def main() -> None:
+    """Download screenshots of a seeded task sample and write the manifest of their digests.
+
+    The zip index is cached after the first run, and images already on disk are not fetched again.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tasks", type=int, default=100)
     parser.add_argument("--seed", type=int, default=2026)
@@ -87,6 +104,14 @@ def main() -> None:
         IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
         def download(row: dict) -> str:
+            """Fetch one image into the images directory and return its sha256 digest.
+
+            Args:
+                row: Index row with name, segment, offset, compressed size and CRC32 of the image.
+
+            Returns:
+                Hex sha256 digest of the image file.
+            """
             path = IMAGES_DIR / row["name"]
             if not path.exists():
                 url = segment_url(commit, row["disk"], last_disk)
