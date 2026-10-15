@@ -12,15 +12,28 @@
 
 ## Python Style
 
-1. Target Python 3.14. Write clean, idiomatic, readable Python.
-2. Add parameter and return type annotations to every function and method. Prefer built-in types such as `list`, `dict`, `tuple`, and `str`, and modern unions such as `str | None`.
-3. Do not use `from __future__ import annotations`. Avoid importing `typing` when built-in syntax is sufficient.
-4. Prefer comprehensions and standard Python constructs when they improve readability.
-5. Do not add code comments. Prefer expressive naming and straightforward implementations.
-6. Avoid leading underscores in variable and function names, except when required by Python protocols, Marimo conventions, or external APIs.
-7. Use `pathlib` for filesystem operations.
-8. Keep functions focused and avoid unnecessary classes, wrappers, and helper functions.
-9. For imports do not use `import *`. You should import `polars` as `pl`, `polars.selectors` as `cs`, `plotly.express` as `px`, `plotly.graph_objects` as `go`, `plotly.subplots` as `sp`, `numpy` as `np`, `marimo` as `mo`, `streamlit` as `st`. For all other libraries, use the default import name or use `from <module> import <class/function>` for specific classes or functions. Avoid aliasing unless necessary to avoid name conflicts or improve clarity.
+01. Target Python 3.14. Write clean, idiomatic, readable Python.
+02. Add parameter and return type annotations to every function and method. Prefer built-in types such as `list`, `dict`, `tuple`, and `str`, and modern unions such as `str | None`.
+03. Do not use `from __future__ import annotations`. Avoid importing `typing` when built-in syntax is sufficient.
+04. Prefer comprehensions and standard Python constructs when they improve readability.
+05. Do not add code comments. Prefer expressive naming and straightforward implementations.
+06. Avoid leading underscores in variable and function names, except when required by Python protocols, Marimo conventions, or external APIs.
+07. Use `pathlib` for filesystem operations.
+08. Keep functions focused and avoid unnecessary classes, wrappers, and helper functions.
+09. For imports do not use `import *`. You should import `polars` as `pl`, `polars.selectors` as `cs`, `plotly.express` as `px`, `plotly.graph_objects` as `go`, `plotly.subplots` as `sp`, `numpy` as `np`, `marimo` as `mo`, `streamlit` as `st`. For all other libraries, use the default import name or use `from <module> import <class/function>` for specific classes or functions. Avoid aliasing unless necessary to avoid name conflicts or improve clarity.
+10. For all Python scripts and modules, use `logging` to log messages. Use `info` level for normal operation messages, where processing takes a long time. Avoid using `print()` for logging or debugging. For each standalone script, configure logging to output to stdout with a timestamp, log level, and logger name as follows:
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+    stream=sys.stdout,
+    force=True,
+)
+```
 
 ## Naming Conventions
 
@@ -33,11 +46,14 @@
 ## Docstrings
 
 1. Add docstrings to all public functions, methods, and classes.
-2. Do not add docstrings to private functions, private methods, private classes, special methods, any code in Marimo notebooks, or in the header of a file.
-3. Use imperative mood for function and method docstrings. Use descriptive mood for class docstrings.
-4. For parameters, attributes, and return values, provide 1-sentence desciprtion, unless the type is nested or complex, in which case provide a brief description of the structure and contents (e.g. key and value descriptions for a dictionary).
-5. For large functions that have more than 60 lines of code, include a brief description of the algorithm between the summary and the `Args` section. Use blank lines to separate the summary, algorithm description, and `Args` section.
-6. Use modified Google-style docstrings with a 1-to-3 sentence summary. Do not include types in the docstring, as they are already specified in the function signature.
+2. Do not add docstrings to private functions, private methods, private classes, special methods.
+3. Do not add docstrings in the beginning of any file.
+4. Do not add docstrings to any Marimo or Jupyter notebook cells. Use Markdown cells for explanations instead.
+5. Use imperative mood for function and method docstrings. Use descriptive mood for class docstrings.
+6. For parameters, attributes, and return values, provide 1-sentence desciprtion, unless the type is nested or complex, in which case provide a brief description of the structure and contents (e.g. key and value descriptions for a dictionary).
+7. For large functions that have more than 60 lines of code, include a brief description of the algorithm between the summary and the `Args` section. Use blank lines to separate the summary, algorithm description, and `Args` section.
+8. Use modified Google-style docstrings with a 1-to-3 sentence summary. Do not include types in the docstring, as they are already specified in the function signature.
+9. Do not use `Raises` section in docstrings. For important exceptions, include them in the summary or algorithm description instead. But do not include every possible exception, only the ones that are relevant, very important and require the caller to handle them explicitly.
 
 Example of docstrings:
 
