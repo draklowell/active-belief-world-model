@@ -17,10 +17,10 @@
 3. Do not use `from __future__ import annotations`. Avoid importing `typing` when built-in syntax is sufficient.
 4. Prefer comprehensions and standard Python constructs when they improve readability.
 5. Do not add code comments. Prefer expressive naming and straightforward implementations.
-6. Avoid leading underscores in variable and function names, except when required by Python protocols, Marimo conventions, or external APIs.
+6. Avoid leading underscores in variable and function names, except when required by Python protocols or external APIs.
 7. Use `pathlib` for filesystem operations.
 8. Keep functions focused and avoid unnecessary classes, wrappers, and helper functions.
-9. For imports do not use `import *`. You should import `polars` as `pl`, `polars.selectors` as `cs`, `plotly.express` as `px`, `plotly.graph_objects` as `go`, `plotly.subplots` as `sp`, `numpy` as `np`, `marimo` as `mo`, `streamlit` as `st`. For all other libraries, use the default import name or use `from <module> import <class/function>` for specific classes or functions. Avoid aliasing unless necessary to avoid name conflicts or improve clarity.
+9. For imports do not use `import *`. You should import `polars` as `pl`, `polars.selectors` as `cs`, `plotly.express` as `px`, `plotly.graph_objects` as `go`, `plotly.subplots` as `sp`, `numpy` as `np`, `streamlit` as `st`. For all other libraries, use the default import name or use `from <module> import <class/function>` for specific classes or functions. Avoid aliasing unless necessary to avoid name conflicts or improve clarity.
 
 ## Naming Conventions
 
@@ -33,7 +33,7 @@
 ## Docstrings
 
 1. Add docstrings to all public functions, methods, and classes.
-2. Do not add docstrings to private functions, private methods, private classes, special methods, any code in Marimo notebooks, or in the header of a file.
+2. Do not add docstrings to private functions, private methods, private classes, special methods, any code in Jupyter notebooks, or in the header of a file.
 3. Use imperative mood for function and method docstrings. Use descriptive mood for class docstrings.
 4. For parameters, attributes, and return values, provide 1-sentence desciprtion, unless the type is nested or complex, in which case provide a brief description of the structure and contents (e.g. key and value descriptions for a dictionary).
 5. For large functions that have more than 60 lines of code, include a brief description of the algorithm between the summary and the `Args` section. Use blank lines to separate the summary, algorithm description, and `Args` section.
@@ -133,7 +133,7 @@ class Class(object):
 | Static type checking         | ty                     |
 | Tests                        | pytest                 |
 | Git hooks                    | pre-commit             |
-| Interactive notebooks        | marimo                 |
+| Interactive notebooks        | JupyterLab             |
 | Tabular data                 | polars                 |
 | Plotting                     | plotly, plotly-express |
 
@@ -164,15 +164,17 @@ Report failures rather than weakening checks to make them pass.
 
 ## Notebooks
 
-1. Prefer marimo for new notebooks. Store them as `.py` files in `notebooks/`.
-2. Use dedicated Markdown cells for explanatory text. Avoid generating narrative paragraphs through `print()`, `display(Markdown(...))`, or similar wrappers.
-3. If narrative text has to be generated programmatically (e.g., for reporting variables), use native Marimo's functions such as `mo.md()`, `mo.image()` and others.
-4. Do not use `print()` for any output in notebooks, instead use Marimo's native functions or return values from cells.
-5. For slow iterative computations, use `mo.status.progress_bar(iterator)` to display progress bars. Avoid verbose console output.
-6. Let notebook cells display their results directly when possible. Avoid verbose console output.
-7. Use consistent mathematical notation across code, plots, and explanations.
-8. Keep notebooks focused on exploration and analysis. Move reusable logic into regular Python modules.
-9. Preserve existing `.ipynb` notebooks unless migration is explicitly requested.
+01. Use Jupyter for notebooks. Store them as `.ipynb` files in `notebooks/`. Use a Python 3.14 kernel with the project's dependencies, locally or remotely. Launch a local JupyterLab session from the repository root with `uv run jupyter lab notebooks/` when appropriate.
+02. Use dedicated Markdown cells for static explanatory text. Avoid generating narrative paragraphs through `print()` or other output wrappers.
+03. If narrative text has to be generated programmatically (e.g., for reporting variables), use `IPython.display.Markdown` with `display()`. Use `IPython.display.Image` for images and `ipywidgets` for interactive controls.
+04. Do not use `print()` for output in notebooks. Use cell return values or `IPython.display.display()` for multiple outputs.
+05. For slow iterative computations, use `tqdm.notebook.tqdm(iterator)` to display progress bars. Avoid verbose console output.
+06. Let notebook cells display their results directly when possible. Avoid verbose console output.
+07. Use consistent mathematical notation across code, plots, and explanations.
+08. Keep notebooks focused on exploration and analysis. Move reusable logic into regular Python modules.
+09. Inspect notebook code and metadata for hardware, data, dependency, side effect, and runtime requirements before execution. Prefer an existing configured remote kernel with the required environment when available. Use a local kernel only for verified lightweight CPU notebooks.
+10. Do not automatically rerun notebooks requiring a GPU, model training or fine-tuning, or other expensive computation, locally or remotely. Such runs require explicit user authorization and suitable compute.
+11. When execution is appropriate, restart the selected kernel and run all cells in order. If suitable compute is unavailable, requirements are unclear, or a run is not authorized, validate notebook schema and code syntax without executing cells. Preserve saved outputs when skipping execution and report that execution was not run, why it was skipped, and which outputs may be stale. Follow `notebooks/README.md` for naming and output conventions.
 
 ## Plotting
 
