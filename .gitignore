@@ -233,6 +233,8 @@ models/*
 
 # Env secrets
 .env
+test.json
+*.effective.json
 
 
 # macOS
