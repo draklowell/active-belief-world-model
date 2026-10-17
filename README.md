@@ -68,27 +68,68 @@ Test set (36 held-out samples) and 5-fold cross-validation, seed=42. Generated b
 
 ## Quick start
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.0 or newer first, then run:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.0 or newer,
+then install the system dependencies for your OS before setting up the project.
+These libraries support source builds of Pillow and pygame, which are pulled in by
+`desktop-env`.
+
+### Ubuntu
+
+The following commands are for Ubuntu, which is also used by the lint workflow:
 
 ```bash
-sudo apt update
-sudo apt install -y build-essential libsdl2-dev
-git clone <repo-url> && cd wine-origin-classifier
+sudo apt-get update
+sudo apt-get install --no-install-recommends -y \
+  build-essential \
+  pkg-config \
+  libjpeg-dev \
+  zlib1g-dev \
+  libsdl2-dev \
+  libsdl2-image-dev \
+  libsdl2-mixer-dev \
+  libsdl2-ttf-dev \
+  libfreetype6-dev \
+  libportmidi-dev
+```
+
+### macOS
+
+Use an Apple silicon Mac running macOS 14 or newer.
+
+Install the Xcode Command Line Tools if needed, and wait for installation to finish:
+
+```bash
+xcode-select --install
+```
+
+Install [Homebrew](https://brew.sh/), then install the native build dependencies:
+
+```bash
+brew install pkg-config jpeg zlib sdl2 sdl2_image sdl2_mixer sdl2_ttf freetype portmidi
+```
+
+### Project setup
+
+After completing the Ubuntu or macOS prerequisites, run:
+
+```bash
+git clone <repo-url> wine-origin-classifier
+cd wine-origin-classifier
 uv python install 3.14
-uv sync                             # creates .venv and installs runtime and dev dependencies
+uv sync --locked                    # creates .venv and installs runtime and dev dependencies
 uv run pre-commit install            # installs the existing Git hooks
 make reproduce                      # data -> train -> evaluate; should print accuracy=0.9722 macro_f1=0.9710
 uv run streamlit run app/streamlit_app.py  # opens the demo at localhost:8501
 ```
 
 > [!important]
-> Python 3.14 is required by `.python-version` and `pyproject.toml`. `make setup` runs the same Python installation, dependency sync, and hook installation commands shown above. Do not substitute an older Python version if a dependency fails to install.
+> Python 3.14 is required by `.python-version` and `pyproject.toml`. After installing the system prerequisites, `make setup` installs Python, syncs dependencies, and installs the Git hooks. Do not substitute an older Python version if a dependency fails to install.
 >
 > `setup` and `reproduce` are the only two `Makefile` targets — deliberately, as a small example of the pattern rather than a wrapper around everything. Every other command in this README (training, the demo, linting, tests) is run directly; see "Development" below.
 
 ### Dependency management
 
-`pyproject.toml` is the source of truth for runtime dependencies and the `dev` dependency group. `uv.lock` records the resolved versions for reproducible installs; commit both files when dependencies change. `uv sync` includes development dependencies and installs the existing `wine_origin` package in editable mode. Use `uv run` for commands in the project environment.
+`pyproject.toml` is the source of truth for runtime dependencies and the `dev` dependency group. `uv.lock` records the resolved versions for reproducible installs; commit both files when dependencies change. `uv sync` includes development dependencies and installs the existing `wine_origin` package in editable mode. Use `uv run` for commands in the project environment. PyTorch uses the CPU index on Linux and Windows and PyPI on macOS.
 
 ```bash
 uv add <package>                     # add a runtime dependency
