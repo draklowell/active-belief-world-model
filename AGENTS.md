@@ -17,7 +17,7 @@
 03. Do not use `from __future__ import annotations`. Avoid importing `typing` when built-in syntax is sufficient.
 04. Prefer comprehensions and standard Python constructs when they improve readability.
 05. Do not add code comments. Prefer expressive naming and straightforward implementations.
-06. Avoid leading underscores in variable and function names, except when required by Python protocols, Marimo conventions, or external APIs.
+06. Avoid leading underscores in variable and function names, except when required by Python protocols, or external APIs.
 07. Use `pathlib` for filesystem operations.
 08. Keep functions focused and avoid unnecessary classes, wrappers, and helper functions.
 09. For imports do not use `import *`. You should import `polars` as `pl`, `polars.selectors` as `cs`, `plotly.express` as `px`, `plotly.graph_objects` as `go`, `plotly.subplots` as `sp`, `numpy` as `np`, `streamlit` as `st`. For all other libraries, use the default import name or use `from <module> import <class/function>` for specific classes or functions. Avoid aliasing unless necessary to avoid name conflicts or improve clarity.
