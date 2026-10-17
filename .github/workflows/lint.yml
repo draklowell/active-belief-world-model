@@ -19,7 +19,7 @@ jobs:
         run: uv python install 3.14
 
       - name: Install dependencies
-        run: uv sync --locked
+        run: apt update && apt install -y build-essential libsdl2-dev && uv sync --locked
 
       - name: flake8
         run: uv run flake8 src/ scripts/ tests/ app/

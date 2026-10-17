@@ -71,6 +71,8 @@ Test set (36 held-out samples) and 5-fold cross-validation, seed=42. Generated b
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.0 or newer first, then run:
 
 ```bash
+sudo apt update
+sudo apt install -y build-essential libsdl2-dev
 git clone <repo-url> && cd wine-origin-classifier
 uv python install 3.14
 uv sync                             # creates .venv and installs runtime and dev dependencies
