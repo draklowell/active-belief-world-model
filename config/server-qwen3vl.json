@@ -1,0 +1,8 @@
+{
+  "hostname": "inference-server",
+  "model": "Qwen/Qwen3-VL-2B-Instruct",
+  "served_model_name": "qwen3-vl",
+  "port": 8000,
+  "max_model_len": 60000,
+  "enforce_eager": true
+}
