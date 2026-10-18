@@ -44,6 +44,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int, default=15)
     parser.add_argument("--sleep-after-execution", type=float, default=0.0)
     parser.add_argument("--result-dir", type=Path, default=Path(".artifacts/benchmark"))
+    parser.add_argument(
+        "--enable-proxy", action="store_true", help="Enable proxy for agent's network access."
+    )
     args = parser.parse_args()
     if args.num_envs < 1 or args.max_steps < 1 or args.sleep_after_execution < 0:
         parser.error(
@@ -167,7 +170,7 @@ def run_tasks(
         action_space="pyautogui",
         headless=args.headless,
         require_a11y_tree=False,
-        enable_proxy=True,
+        enable_proxy=args.enable_proxy,
         client_password=args.password,
     )
     try:
