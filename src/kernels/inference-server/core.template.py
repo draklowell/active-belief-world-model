@@ -305,10 +305,17 @@ class VLLMManager:
     def install(self) -> None:
         """Install vllm and vllm-omni via pip."""
         self._log.info("Installing vllm and vllm-omni...")
-        subprocess.run(
+        process = subprocess.Popen(
             ["pip", "install", "vllm==0.30.0", "vllm-omni==0.30.0"],
-            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
+        if process.stdout is not None:
+            for line in process.stdout:
+                self._log.info("%s", line.rstrip())
+        if process.wait() != 0:
+            raise subprocess.CalledProcessError(process.returncode, process.args)
         self._log.info("vllm and vllm-omni installed successfully.")
 
     def _stream_logs(self, process: subprocess.Popen) -> None:
