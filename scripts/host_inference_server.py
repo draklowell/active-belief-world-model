@@ -7,6 +7,8 @@ import sys
 import time
 from pathlib import Path
 
+from decouple import config
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -41,32 +43,44 @@ def read_kaggle_username() -> str:
     raise RuntimeError("Could not parse username from `kaggle config view` output.")
 
 
-def apply_backend_defaults(config: dict, backend: str) -> dict:
+def apply_backend_defaults(server_config: dict, backend: str) -> dict:
     """Apply platform-specific defaults to a config dict when fields are absent.
 
     Args:
-        config: Mutable config dictionary to augment.
+        server_config: Mutable config dictionary to augment.
         backend: Inference platform identifier, either "kaggle" or "colab".
 
     Returns:
         The same config dictionary with defaults applied in-place.
     """
-    if "tensor_parallel_size" not in config:
-        config["tensor_parallel_size"] = 2 if backend == "kaggle" else 1
-    return config
+    if "tensor_parallel_size" not in server_config:
+        server_config["tensor_parallel_size"] = 2 if backend == "kaggle" else 1
+    return server_config
 
 
-def embed_config(source_code: str, config: dict) -> str:
+def load_secrets() -> dict:
+    """Load secrets from environment variables via decouple.
+
+    Returns:
+        Dictionary mapping secret keys to their values.
+    """
+    return {
+        "tailscale_auth_key": config("TAILSCALE_AUTH_KEY", default=""),
+        "hf_token": config("HF_TOKEN", default=""),
+    }
+
+
+def embed_config(source_code: str, server_config: dict) -> str:
     """Embed the configuration dictionary as a JSON string in Python source code.
 
     Args:
         source_code: Python code containing a CONFIG_JSON definition.
-        config: Configuration dictionary to serialize and embed.
+        server_config: Configuration dictionary to serialize and embed.
 
     Returns:
         Updated source code with serialized JSON embedded in CONFIG_JSON.
     """
-    config_json = json.dumps(config, indent=2)
+    config_json = json.dumps(server_config, indent=2)
     pattern = r'CONFIG_JSON:\s*str\s*=\s*""".*?"""'
     updated_code, count = re.subn(
         pattern,
@@ -79,15 +93,40 @@ def embed_config(source_code: str, config: dict) -> str:
     return updated_code
 
 
-def embed_config_to_core(config: dict) -> None:
-    """Generate core.py by embedding configuration into core.template.py.
+def embed_secrets(source_code: str, secrets: dict) -> str:
+    """Embed the secrets dictionary as a JSON string in Python source code.
 
     Args:
-        config: Configuration dictionary to embed.
+        source_code: Python code containing a SECRETS_JSON definition.
+        secrets: Secrets dictionary to serialize and embed.
+
+    Returns:
+        Updated source code with serialized JSON embedded in SECRETS_JSON.
+    """
+    secrets_json = json.dumps(secrets, indent=2)
+    pattern = r'SECRETS_JSON:\s*str\s*=\s*""".*?"""'
+    updated_code, count = re.subn(
+        pattern,
+        lambda _: f'SECRETS_JSON: str = """\n{secrets_json}\n"""',
+        source_code,
+        flags=re.DOTALL,
+    )
+    if count == 0:
+        raise RuntimeError("SECRETS_JSON definition not found in kernel template code.")
+    return updated_code
+
+
+def embed_config_to_core(server_config: dict, secrets: dict) -> None:
+    """Generate core.py by embedding configuration and secrets into core.template.py.
+
+    Args:
+        server_config: Configuration dictionary to embed.
+        secrets: Secrets dictionary to embed.
     """
     source_code = CORE_TEMPLATE_PATH.read_text()
-    updated_code = embed_config(source_code, config)
-    CORE_PATH.write_text(updated_code)
+    source_code = embed_config(source_code, server_config)
+    source_code = embed_secrets(source_code, secrets)
+    CORE_PATH.write_text(source_code)
 
 
 def patch_metadata(username: str, kernel_slug: str, accelerator: str | None = None) -> dict:
@@ -118,11 +157,12 @@ def run_kaggle(args: argparse.Namespace) -> None:
     username = read_kaggle_username()
     log.info("Detected Kaggle username: %s", username)
 
-    config = json.loads(Path(args.config).read_text())
-    apply_backend_defaults(config, "kaggle")
+    server_config = json.loads(Path(args.config).read_text())
+    apply_backend_defaults(server_config, "kaggle")
+    secrets = load_secrets()
 
-    embed_config_to_core(config)
-    log.info("Embedded config from core.template.py into core.py.")
+    embed_config_to_core(server_config, secrets)
+    log.info("Embedded config and secrets from core.template.py into core.py.")
 
     accelerator = args.accelerator or "NvidiaTeslaT4"
 
@@ -170,11 +210,12 @@ def run_colab(args: argparse.Namespace) -> None:
     """
     log = logging.getLogger("colab")
 
-    config = json.loads(Path(args.config).read_text())
-    apply_backend_defaults(config, "colab")
+    server_config = json.loads(Path(args.config).read_text())
+    apply_backend_defaults(server_config, "colab")
+    secrets = load_secrets()
 
-    embed_config_to_core(config)
-    log.info("Embedded config from core.template.py into core.py.")
+    embed_config_to_core(server_config, secrets)
+    log.info("Embedded config and secrets from core.template.py into core.py.")
 
     if args.accelerator == "cpu":
         accelerator = tuple()

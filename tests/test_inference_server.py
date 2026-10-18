@@ -13,10 +13,13 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 MINIMAL_CONFIG = {
     "hostname": "test-host",
-    "tailscale_auth_key": "tskey-test",
-    "hf_token": "hf_test",
     "model": "Qwen/Qwen3-VL-4B-Instruct",
     "served_model_name": "qwen",
+}
+
+MINIMAL_SECRETS = {
+    "tailscale_auth_key": "tskey-test",
+    "hf_token": "hf_test",
 }
 
 
@@ -46,8 +49,6 @@ class TestServerConfig:
     def test_from_dict_required_fields(self, core: ModuleType) -> None:
         config = core.ServerConfig.from_dict(MINIMAL_CONFIG)
         assert config.hostname == "test-host"
-        assert config.tailscale_auth_key == "tskey-test"
-        assert config.hf_token == "hf_test"
         assert config.model == "Qwen/Qwen3-VL-4B-Instruct"
         assert config.served_model_name == "qwen"
 
@@ -77,7 +78,6 @@ class TestServerConfig:
         monkeypatch.setattr(core, "CONFIG_JSON", json.dumps(MINIMAL_CONFIG))
         config = core.load_config()
         assert config.hostname == MINIMAL_CONFIG["hostname"]
-        assert config.hf_token == MINIMAL_CONFIG["hf_token"]
         assert config.model == MINIMAL_CONFIG["model"]
 
     def test_load_config_empty_raises(
@@ -86,6 +86,32 @@ class TestServerConfig:
         monkeypatch.setattr(core, "CONFIG_JSON", "{}")
         with pytest.raises(RuntimeError, match="Embedded CONFIG_JSON is empty"):
             core.load_config()
+
+
+class TestServerSecrets:
+    def test_from_dict_fields(self, core: ModuleType) -> None:
+        secrets = core.ServerSecrets.from_dict(MINIMAL_SECRETS)
+        assert secrets.tailscale_auth_key == "tskey-test"
+        assert secrets.hf_token == "hf_test"
+
+    def test_from_dict_ignores_unknown_keys(self, core: ModuleType) -> None:
+        secrets = core.ServerSecrets.from_dict({**MINIMAL_SECRETS, "unknown_field": "value"})
+        assert secrets.tailscale_auth_key == "tskey-test"
+
+    def test_load_secrets_from_embedded_json(
+        self, core: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(core, "SECRETS_JSON", json.dumps(MINIMAL_SECRETS))
+        secrets = core.load_secrets()
+        assert secrets.tailscale_auth_key == MINIMAL_SECRETS["tailscale_auth_key"]
+        assert secrets.hf_token == MINIMAL_SECRETS["hf_token"]
+
+    def test_load_secrets_empty_raises(
+        self, core: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(core, "SECRETS_JSON", "{}")
+        with pytest.raises(RuntimeError, match="Embedded SECRETS_JSON is empty"):
+            core.load_secrets()
 
 
 class TestKernelMetadataTemplate:
@@ -148,6 +174,36 @@ class TestEmbedConfig:
         template = "x = 1\n"
         with pytest.raises(RuntimeError, match="CONFIG_JSON definition not found"):
             orchestrator.embed_config(template, MINIMAL_CONFIG)
+
+
+class TestEmbedSecrets:
+    def test_embed_secrets_replaces_empty_placeholder(self, orchestrator: ModuleType) -> None:
+        template = 'SECRETS_JSON: str = """{}"""\n'
+        result = orchestrator.embed_secrets(template, MINIMAL_SECRETS)
+        assert MINIMAL_SECRETS["tailscale_auth_key"] in result
+        assert MINIMAL_SECRETS["hf_token"] in result
+
+    def test_embed_secrets_replaces_existing_secrets(self, orchestrator: ModuleType) -> None:
+        old_template = 'SECRETS_JSON: str = """\n{"tailscale_auth_key": "old"}\n"""\n'
+        result = orchestrator.embed_secrets(old_template, MINIMAL_SECRETS)
+        assert MINIMAL_SECRETS["tailscale_auth_key"] in result
+        assert '"old"' not in result
+
+    def test_embed_secrets_missing_placeholder_raises(self, orchestrator: ModuleType) -> None:
+        template = "x = 1\n"
+        with pytest.raises(RuntimeError, match="SECRETS_JSON definition not found"):
+            orchestrator.embed_secrets(template, MINIMAL_SECRETS)
+
+
+class TestLoadSecretsOrchestrator:
+    def test_load_secrets_from_env(
+        self, orchestrator: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TAILSCALE_AUTH_KEY", "tskey-from-env")
+        monkeypatch.setenv("HF_TOKEN", "hf_from_env")
+        secrets = orchestrator.load_secrets()
+        assert secrets["tailscale_auth_key"] == "tskey-from-env"
+        assert secrets["hf_token"] == "hf_from_env"
 
 
 class TestApplyBackendDefaults:

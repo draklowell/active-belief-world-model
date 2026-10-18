@@ -1,7 +1,5 @@
 {
   "hostname": "test-host",
-  "tailscale_auth_key": "tskey-test-000000000000",
-  "hf_token": "hf_test000000000000",
   "model": "Qwen/Qwen3-VL-4B-Instruct",
   "served_model_name": "qwen"
 }

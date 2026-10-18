@@ -22,8 +22,6 @@ class ServerConfig:
 
     Attributes:
         hostname: Tailscale hostname to advertise.
-        tailscale_auth_key: Tailscale auth key for login.
-        hf_token: Hugging Face token for model downloads.
         model: Hugging Face model identifier to serve.
         served_model_name: API alias exposed by the OpenAI-compatible endpoint.
         port: Port the inference server listens on.
@@ -36,8 +34,6 @@ class ServerConfig:
     """
 
     hostname: str
-    tailscale_auth_key: str
-    hf_token: str
     model: str
     served_model_name: str
     port: int = 8000
@@ -62,7 +58,34 @@ class ServerConfig:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+@dataclasses.dataclass
+class ServerSecrets:
+    """Secrets required for inference server services.
+
+    Attributes:
+        tailscale_auth_key: Tailscale auth key for login.
+        hf_token: Hugging Face token for model downloads.
+    """
+
+    tailscale_auth_key: str = ""
+    hf_token: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ServerSecrets":
+        """Construct a ServerSecrets from a dictionary, ignoring unknown keys.
+
+        Args:
+            data: Mapping of secret field names to values.
+
+        Returns:
+            A populated ServerSecrets instance.
+        """
+        known = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+
 CONFIG_JSON: str = """{}"""
+SECRETS_JSON: str = """{}"""
 
 
 def load_config() -> ServerConfig:
@@ -77,6 +100,20 @@ def load_config() -> ServerConfig:
             "Embedded CONFIG_JSON is empty. Run through host_inference_server.py to embed config."
         )
     return ServerConfig.from_dict(data)
+
+
+def load_secrets() -> ServerSecrets:
+    """Load embedded server secrets.
+
+    Returns:
+        A ServerSecrets instance parsed from the embedded SECRETS_JSON string.
+    """
+    data = json.loads(SECRETS_JSON)
+    if not data:
+        raise RuntimeError(
+            "Embedded SECRETS_JSON is empty. Run through host_inference_server.py to embed secrets."
+        )
+    return ServerSecrets.from_dict(data)
 
 
 class TailscaleManager:
@@ -364,9 +401,10 @@ class VLLMManager:
 
 
 def main() -> None:
-    """Load config, start Tailscale and vLLM in parallel, and wait for shutdown."""
+    """Load config and secrets, start Tailscale and vLLM in parallel, and wait for shutdown."""
     log = logging.getLogger("main")
     config = load_config()
+    secrets = load_secrets()
     log.info(
         "Loaded config: model=%s, hostname=%s, tensor_parallel_size=%d",
         config.model,
@@ -376,13 +414,13 @@ def main() -> None:
 
     tailscale = TailscaleManager(
         hostname=config.hostname,
-        auth_key=config.tailscale_auth_key,
+        auth_key=secrets.tailscale_auth_key,
         socks5_port=config.socks5_port,
     )
     vllm = VLLMManager(
         model=config.model,
         served_model_name=config.served_model_name,
-        hf_token=config.hf_token,
+        hf_token=secrets.hf_token,
         tensor_parallel_size=config.tensor_parallel_size,
         port=config.port,
         host=config.host,

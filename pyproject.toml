@@ -22,6 +22,7 @@ dependencies = [
     "kaleido==1.5.0",
     "desktop-env==1.0.2",
     "torch==2.14.1",
+    "python-decouple==3.8",
 ]
 
 [dependency-groups]
