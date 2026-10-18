@@ -235,8 +235,9 @@ models/*
 .env
 *.effective.json
 
-# Used by OSWorld ofr virtual environment
+# Used by OSWorld forr virtual environment
 /docker_vm_data
+/cache
 
 # macOS
 .DS_Store
