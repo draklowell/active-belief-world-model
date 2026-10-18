@@ -68,8 +68,12 @@ def embed_config(source_code: str, config: dict) -> str:
     """
     config_json = json.dumps(config, indent=2)
     pattern = r'CONFIG_JSON:\s*str\s*=\s*""".*?"""'
-    replacement = f'CONFIG_JSON: str = """\n{config_json}\n"""'
-    updated_code, count = re.subn(pattern, replacement, source_code, flags=re.DOTALL)
+    updated_code, count = re.subn(
+        pattern,
+        lambda _: f'CONFIG_JSON: str = """\n{config_json}\n"""',
+        source_code,
+        flags=re.DOTALL,
+    )
     if count == 0:
         raise RuntimeError("CONFIG_JSON definition not found in kernel template code.")
     return updated_code
@@ -191,7 +195,9 @@ def run_colab(args: argparse.Namespace) -> None:
             for line in process.stdout:
                 decoded_line = line.decode(errors="replace").rstrip()
                 log.info("[colab] %s", decoded_line)
-                match = re.search(r"session '([^']+)'", decoded_line, re.IGNORECASE)
+                match = re.match(
+                    r"^\[colab\] Session READY \(([^)]+)\). Executing", decoded_line, re.IGNORECASE
+                )
                 if match:
                     session_name = match.group(1)
         process.wait()

@@ -32,6 +32,7 @@ class ServerConfig:
         tensor_parallel_size: Number of GPUs for tensor parallelism.
         socks5_port: SOCKS5 proxy port exposed by tailscaled.
         skip_install: Skip dependency installation steps when True.
+        enforce_eager: Whether to enforce eager execution in vLLM (may reduce memory usage).
     """
 
     hostname: str
@@ -45,6 +46,7 @@ class ServerConfig:
     tensor_parallel_size: int = 1
     socks5_port: int = 1055
     skip_install: bool = False
+    enforce_eager: bool = True
 
     @classmethod
     def from_dict(cls, data: dict) -> "ServerConfig":
@@ -218,6 +220,7 @@ class VLLMManager:
         port: The port the inference server listens on.
         host: The host address the inference server binds to.
         max_model_len: The maximum sequence length in tokens.
+        enforce_eager: Whether to enforce eager execution in vLLM (may reduce memory usage).
 
     Args:
         model: The Hugging Face model identifier.
@@ -227,6 +230,7 @@ class VLLMManager:
         port: Port number for the inference server.
         host: Bind address for the inference server.
         max_model_len: Maximum context length in tokens.
+        enforce_eager: Whether to enforce eager execution in vLLM (may reduce memory usage).
     """
 
     model: str
@@ -236,6 +240,7 @@ class VLLMManager:
     port: int
     host: str
     max_model_len: int
+    enforce_eager: bool
 
     def __init__(
         self,
@@ -246,6 +251,7 @@ class VLLMManager:
         port: int = 8000,
         host: str = "0.0.0.0",
         max_model_len: int = 16384,
+        enforce_eager: bool = True,
     ) -> None:
         self.model = model
         self.served_model_name = served_model_name
@@ -254,9 +260,9 @@ class VLLMManager:
         self.port = port
         self.host = host
         self.max_model_len = max_model_len
+        self.enforce_eager = enforce_eager
         self._log = logging.getLogger("VLLMManager")
         self._process: subprocess.Popen | None = None
-        self._thread: subprocess.Popen | None = None
         self._managed_thread: threading.Thread | None = None
 
     def install(self) -> None:
@@ -282,6 +288,11 @@ class VLLMManager:
             self.port,
             self.tensor_parallel_size,
         )
+
+        enforce_eager = []
+        if self.enforce_eager:
+            enforce_eager = ["--enforce-eager"]
+
         self._process = subprocess.Popen(
             [
                 "vllm",
@@ -291,7 +302,7 @@ class VLLMManager:
                 str(self.port),
                 "--host",
                 self.host,
-                "--enforce-eager",
+                *enforce_eager,
                 "--max-model-len",
                 str(self.max_model_len),
                 "--served-model-name",
@@ -376,6 +387,7 @@ def main() -> None:
         port=config.port,
         host=config.host,
         max_model_len=config.max_model_len,
+        enforce_eager=config.enforce_eager,
     )
 
     if not config.skip_install:
