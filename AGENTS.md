@@ -22,7 +22,8 @@
 08. Keep functions focused and avoid unnecessary classes, wrappers, and helper functions.
 09. For imports do not use `import *`. You should import `polars` as `pl`, `polars.selectors` as `cs`, `plotly.express` as `px`, `plotly.graph_objects` as `go`, `plotly.subplots` as `sp`, `numpy` as `np`, `streamlit` as `st`. For all other libraries, use the default import name or use `from <module> import <class/function>` for specific classes or functions. Avoid aliasing unless necessary to avoid name conflicts or improve clarity.
 10. Limit the length of lines to 100 characters, as required by Flake8 configuration. For long strings, use implicit concatenation with parentheses instead of backslashes. Avoid using `# noqa` to bypass style checks.
-11. For all Python scripts and modules, use `logging` to log messages. Use `info` level for normal operation messages, where processing takes a long time. Avoid using `print()` for logging or debugging. For each standalone script, configure logging to output to stdout with a timestamp, log level, and logger name as follows:
+11. Read environment variables and `.env` configuration using `decouple` via `from decouple import config`. Do not use `os.environ` or `os.getenv` to read settings or secrets.
+12. For all Python scripts and modules, use `logging` to log messages. Use `info` level for normal operation messages, where processing takes a long time. Avoid using `print()` for logging or debugging. For each standalone script, configure logging to output to stdout with a timestamp, log level, and logger name as follows:
 
 ```python
 import logging
@@ -143,6 +144,7 @@ class Class(object):
 | Purpose                      | Tool                   |
 | ---------------------------- | ---------------------- |
 | Dependencies and environment | uv                     |
+| Configuration and secrets    | decouple               |
 | Formatting                   | Black                  |
 | Import sorting               | isort                  |
 | Linting                      | flake8                 |
