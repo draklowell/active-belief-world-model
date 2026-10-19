@@ -210,12 +210,9 @@ class Qwen3VLAgent(Agent):
             "* `right_click`: Click the right mouse button at (x, y).\n"
             "* `middle_click`: Click the middle mouse button at (x, y).\n"
             "* `double_click`: Double-click left mouse button at (x, y).\n"
-            "* `triple_click`: Triple-click left mouse button at (x, y).\n"
             "* `scroll`: Performs a scroll of the mouse scroll wheel.\n"
-            "* `hscroll`: Performs a horizontal scroll.\n"
             "* `wait`: Wait specified seconds for the change to happen.\n"
             "* `terminate`: Terminate the current task and report completion status.\n"
-            "* `answer`: Answer a question."
         )
         tools_def = {
             "type": "function",
