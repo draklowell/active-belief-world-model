@@ -6,6 +6,7 @@ from types import ModuleType
 from typing import cast
 from unittest.mock import MagicMock, call
 
+import mlflow
 import pytest
 
 from agents.base import Agent
@@ -203,6 +204,7 @@ def test_run_task_tracks_actions_and_stops_when_done(
         ({"screenshot": b"clicked"}, 0, False, {}),
         ({"screenshot": b"done"}, 0, True, {"done": True}),
     ]
+    mlflow.tracing.disable()
     result = benchmark.run_task(agent, env, task, settings)
     assert result["score"] == 1.0
     assert result["domain"] == "chrome"
@@ -224,6 +226,7 @@ def test_run_task_respects_prediction_limit(
     """Evaluate after the prediction budget is exhausted."""
     env.step.return_value = ({"screenshot": b"step"}, 0, False, {})
     agent = DummyAgent({"actions": ["WAIT"]})
+    mlflow.tracing.disable()
     benchmark.run_task(agent, env, task, settings)
     assert env.step.call_count == args.max_steps
     env.evaluate.assert_called_once_with()
@@ -239,6 +242,7 @@ def test_run_task_ends_recording_on_error(
 ) -> None:
     """Close recordings without marking failed tasks complete."""
     getattr(env, failing_method).side_effect = RuntimeError("failed")
+    mlflow.tracing.disable()
     with pytest.raises(RuntimeError, match="failed"):
         benchmark.run_task(DummyAgent(AGENT_CONFIG), env, task, settings)
     env.controller.end_recording.assert_called_once()

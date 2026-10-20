@@ -13,9 +13,9 @@ from multiprocessing import get_context
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
-import dagshub
 import mlflow
 import polars as pl
+from decouple import config
 from mlflow.entities import SpanType
 from mlflow.tracing.attachments import Attachment
 
@@ -27,25 +27,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def init_mlflow(mlflow_tracking_uri: str) -> None:
+def init_mlflow(mlflow_tracking_uri: str) -> bool:
     """Initialize MLflow tracking server and autologging.
 
     Args:
-        mlflow_tracking_uri: Optional MLflow tracking URI.
-            If not provided, uses the default DagsHub tracking server.
-    """
+        mlflow_tracking_uri: MLflow tracking server URI, or "disabled" to disable MLflow entirely.
 
-    if mlflow_tracking_uri == "dagshub":
-        dagshub.init(repo_owner="draklowell", repo_name="active-belief-world-model", mlflow=True)
-        mlflow.openai.autolog()
-    elif mlflow_tracking_uri == "memory":
-        mlflow.set_tracking_uri("sqlite:///:memory:")
-        mlflow.openai.autolog()
-    elif mlflow_tracking_uri == "disabled":
+    Returns:
+        True if MLflow is enabled, False otherwise.
+    """
+    if mlflow_tracking_uri == "memory":
+        mlflow_tracking_uri = "sqlite:///:memory:"
+
+    if mlflow_tracking_uri == "disabled":
         mlflow.tracing.disable()
+
+        return False
     else:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
         mlflow.openai.autolog()
+
+        return True
 
 
 class SettingsDict(TypedDict):
@@ -111,8 +113,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mlflow",
-        default="dagshub",
-        help="MLflow tracking server to use ('dagshub', 'disabled' or a custom URI).",
+        default=None,
+        help="MLflow tracking URI, or 'disabled' to disable MLflow entirely.",
     )
 
     args = parser.parse_args()
@@ -255,6 +257,8 @@ def run_tasks(
         force=True,
     )
 
+    logging.info("Using MLFlow tracking server at %s", settings["mlflow_tracking_uri"])
+
     init_mlflow(settings["mlflow_tracking_uri"])
     if settings["mlflow_enabled"]:
         mlflow.set_experiment(experiment_id=experiment_id)
@@ -328,7 +332,10 @@ def main() -> None:
 
     args = parse_args()
 
-    init_mlflow(args.mlflow)
+    if args.mlflow is None:
+        args.mlflow = config("MLFLOW_TRACKING_URI", default="disabled")
+
+    mlflow_enabled = init_mlflow(args.mlflow)
 
     agent_class = load_agent_class(args.agent_path)
     agent_config = json.loads(args.agent_config.read_text(encoding="utf-8"))
@@ -379,7 +386,7 @@ def main() -> None:
             "max_steps": args.max_steps,
             "sleep_after_execution": args.sleep_after_execution,
             "mlflow_tracking_uri": args.mlflow,
-            "mlflow_enabled": args.mlflow != "disabled",
+            "mlflow_enabled": mlflow_enabled,
         },
     )
 

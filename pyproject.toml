@@ -28,7 +28,6 @@ dependencies = [
     "backoff==2.2.1",
     "beautifulsoup4>=4.12",
     "mlflow>=3.17.1",
-    "dagshub==0.7.3",
 ]
 
 [dependency-groups]
