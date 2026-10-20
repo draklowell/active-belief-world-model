@@ -80,7 +80,7 @@ class TestQwen3VLAgent:
 
     def test_parse_response_click_relative(self, agent: Qwen3VLAgent) -> None:
         response = (
-            "<action>Click the start button</action>\n"
+            "Action: Click the start button\n"
             "<tool_call>\n"
             '{"name": "computer_use", "arguments": {"action": "left_click", '
             '"coordinate": [500, 500]}}\n'
@@ -93,7 +93,7 @@ class TestQwen3VLAgent:
             processed_width=1280,
             processed_height=720,
         )
-        assert instruction == "Click the start button"
+        assert instruction == "Action: Click the start button"
         expected_x = int(500 * 1920 / 999)
         expected_y = int(500 * 1080 / 999)
         assert actions == [f"pyautogui.click({expected_x}, {expected_y})"]
@@ -113,7 +113,7 @@ class TestQwen3VLAgent:
             processed_width=1280,
             processed_height=720,
         )
-        assert instruction == "Performing rightClick action"
+        assert instruction == ""
         assert actions == ["pyautogui.rightClick(960, 540)"]
 
     def test_parse_response_type_and_key(self, agent: Qwen3VLAgent) -> None:
@@ -145,14 +145,14 @@ class TestQwen3VLAgent:
 
     def test_parse_response_action_tag_extracted(self, agent: Qwen3VLAgent) -> None:
         response = (
-            "<action>Open the file manager</action>\n"
+            "Action: Open the file manager\n"
             "<tool_call>\n"
             '{"name": "computer_use", "arguments": {"action": "double_click", '
             '"coordinate": [100, 200]}}\n'
             "</tool_call>"
         )
         instruction, actions = agent.parse_response(response, 1920, 1080, 1280, 720)
-        assert instruction == "Open the file manager"
+        assert instruction == "Action: Open the file manager"
         assert len(actions) == 1
         assert "doubleClick" in actions[0]
 
@@ -169,7 +169,7 @@ class TestQwen3VLAgent:
             MagicMock(
                 message=MagicMock(
                     content=(
-                        "<action>Click at center</action>\n"
+                        "Action: Click at center\n"
                         "<tool_call>\n"
                         '{"name": "computer_use", "arguments": {"action": "left_click", '
                         '"coordinate": [500, 500]}}\n'
@@ -183,7 +183,7 @@ class TestQwen3VLAgent:
             agent._client.chat.completions, "create", return_value=mock_completion
         ) as mock_create:
             response, actions = agent.predict("Click the center", obs)
-            assert "<action>Click at center</action>" in response
+            assert "Action: Click at center" in response
             assert len(actions) == 1
             assert actions[0].startswith("pyautogui.click(")
             mock_create.assert_called_once()
