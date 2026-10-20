@@ -8,6 +8,7 @@ from typing import cast
 
 import backoff
 import openai
+from bs4 import BeautifulSoup
 from decouple import config
 from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
@@ -273,14 +274,17 @@ class Qwen3VLAgent(Agent):
             '{"name": <function-name>, "arguments": <args-json-object>}\n'
             "</tool_call>\n\n"
             "# Response format\n\n"
-            "Response format for every step:\n"
-            "1) Action: a short imperative describing what to do in the UI.\n"
-            "2) A single <tool_call>...</tool_call> block containing only the JSON: "
-            '{"name": <function-name>, "arguments": <args-json-object>}.\n\n'
+            "Structure every response using these XML tags:\n"
+            "<action>A short imperative sentence describing what you are doing "
+            "in the UI.</action>\n"
+            "<tool_call>\n"
+            '{"name": <function-name>, "arguments": <args-json-object>}\n'
+            "</tool_call>\n\n"
             "Rules:\n"
-            "- Output exactly in the order: Action, <tool_call>.\n"
-            "- Be brief: one sentence for Action.\n"
-            "- Do not output anything else outside those parts.\n"
+            "- Always wrap the action description in <action>...</action> tags.\n"
+            "- Follow it with exactly one <tool_call>...</tool_call> block.\n"
+            "- Be brief: one sentence inside <action>.\n"
+            "- Do not output anything outside those two XML blocks.\n"
             "- If finishing, use action=terminate in the tool call."
         )
 
@@ -491,6 +495,11 @@ class Qwen3VLAgent(Agent):
     ) -> tuple[str, list[str]]:
         """Parse model response into action description and executable commands.
 
+        Parses the full response text as HTML/XML using BeautifulSoup, extracting
+        the action description from an <action> tag and tool calls from <tool_call>
+        tags. Falls back to deriving an action description from the first executed
+        command when no <action> tag is present.
+
         Args:
             response: Raw completion text from model.
             original_width: Native screen width in pixels.
@@ -501,15 +510,19 @@ class Qwen3VLAgent(Agent):
         Returns:
             Tuple containing human-readable action description and ordered action strings.
         """
-        low_level_instruction = ""
-        pyautogui_code: list[str] = []
-
         if not response or not response.strip():
-            return low_level_instruction, pyautogui_code
+            return "", []
 
-        def process_json_call(json_str: str) -> None:
+        soup = BeautifulSoup(response, "html.parser")
+
+        action_tag = soup.find("action")
+        low_level_instruction = action_tag.get_text(strip=True) if action_tag else ""
+
+        pyautogui_code: list[str] = []
+        for tool_call_tag in soup.find_all("tool_call"):
+            raw = tool_call_tag.get_text(strip=True)
             try:
-                tool_call = json.loads(json_str)
+                tool_call = json.loads(raw)
                 if tool_call.get("name") == "computer_use":
                     actions = self._parse_tool_call_action(
                         tool_call.get("arguments", {}),
@@ -521,44 +534,6 @@ class Qwen3VLAgent(Agent):
                     pyautogui_code.extend(actions)
             except (json.JSONDecodeError, KeyError) as error:
                 logger.error("Failed to parse tool call: %s", error)
-
-        inside_tool_call = False
-        current_tool_call: list[str] = []
-
-        for line in response.splitlines():
-            line_stripped = line.strip()
-            if not line_stripped:
-                continue
-
-            if line_stripped.lower().startswith("action:"):
-                if not low_level_instruction:
-                    low_level_instruction = line_stripped.split("Action:", 1)[-1].strip()
-                continue
-
-            if line_stripped.startswith("<tool_call>"):
-                inside_tool_call = True
-                continue
-            if line_stripped.startswith("</tool_call>"):
-                if current_tool_call:
-                    process_json_call("\n".join(current_tool_call))
-                    current_tool_call = []
-                inside_tool_call = False
-                continue
-
-            if inside_tool_call:
-                current_tool_call.append(line_stripped)
-                continue
-
-            if line_stripped.startswith("{") and line_stripped.endswith("}"):
-                try:
-                    obj = json.loads(line_stripped)
-                    if "name" in obj and "arguments" in obj:
-                        process_json_call(line_stripped)
-                except json.JSONDecodeError:
-                    pass
-
-        if current_tool_call:
-            process_json_call("\n".join(current_tool_call))
 
         if not low_level_instruction and pyautogui_code:
             action_type = pyautogui_code[0].split(".", 1)[-1].split("(", 1)[0]

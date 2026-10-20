@@ -26,6 +26,7 @@ dependencies = [
     "python-decouple==3.8",
     "openai==3.35.1",
     "backoff==2.2.1",
+    "beautifulsoup4>=4.12",
 ]
 
 [dependency-groups]
