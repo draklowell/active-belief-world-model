@@ -429,16 +429,16 @@ class Qwen3VLAgent(Agent):
             return actions
 
         if action == "key":
-            keys = args.get("keys", [])
-            cleaned_keys = []
-            for key in keys:
-                cleaned_key = str(key).strip().strip("[]'\"")
-                if cleaned_key:
-                    cleaned_keys.append(cleaned_key)
-            keys_str = ", ".join(f"'{k}'" for k in cleaned_keys)
-            if len(cleaned_keys) > 1:
+            keys = []
+            for key in args.get("keys", []):
+                key = str(key).strip()
+                if key:
+                    keys.append(key)
+
+            keys_str = ", ".join(repr(k) for k in keys)
+            if len(keys) > 1:
                 return [f"pyautogui.hotkey({keys_str})"]
-            if cleaned_keys:
+            if keys:
                 return [f"pyautogui.press({keys_str})"]
             return []
 
