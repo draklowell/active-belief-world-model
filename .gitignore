@@ -241,3 +241,8 @@ models/*
 
 # macOS
 .DS_Store
+
+
+# MLFlow: ignore files that are generated during tests
+/mlruns/
+/mlflow.db

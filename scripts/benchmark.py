@@ -6,11 +6,18 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from concurrent.futures import ProcessPoolExecutor
 from importlib import import_module
 from multiprocessing import get_context
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict, cast
+
+import mlflow
+import polars as pl
+from decouple import config
+from mlflow.entities import SpanType
+from mlflow.tracing.attachments import Attachment
 
 from agents.base import Agent
 
@@ -18,6 +25,25 @@ if TYPE_CHECKING:
     from desktop_env.desktop_env import DesktopEnv
 
 logger = logging.getLogger(__name__)
+
+
+class SettingsDict(TypedDict):
+    max_steps: int
+    sleep_after_execution: float
+    provider_name: str
+    aws_region: str
+    path_to_vm: str
+    headless: bool
+    enable_proxy: bool
+    password: str
+    num_envs: int
+
+
+class TaskResultDict(TypedDict):
+    domain: str
+    task_id: str
+    score: float
+    steps: int
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +71,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--path-to-vm")
     parser.add_argument("--max-steps", type=int, default=15)
     parser.add_argument("--sleep-after-execution", type=float, default=0.0)
-    parser.add_argument("--result-dir", type=Path, default=Path(".artifacts/benchmark"))
     parser.add_argument(
         "--enable-proxy", action="store_true", help="Enable proxy for agent's network access."
     )
@@ -75,80 +100,111 @@ def load_agent_class(agent_path: str) -> type[Agent]:
     return agent_class
 
 
-def run_task(
-    agent: Agent, env: "DesktopEnv", task: dict, result_dir: Path, args: argparse.Namespace
-) -> float:
+def run_task(agent: Agent, env: "DesktopEnv", task: dict, settings: SettingsDict) -> TaskResultDict:
     """Run one task and save its trajectory, screenshots, recording, and score.
 
     Args:
         agent: Agent reused across tasks in this worker.
         env: Desktop environment owned by this worker.
         task: OSWorld task configuration, including its instruction and evaluator.
-        result_dir: Directory for this task's artifacts.
-        args: Parsed benchmark settings.
+        settings: Benchmark settings.
 
     Returns:
         The environment's evaluation score.
     """
-    result_dir.mkdir(parents=True, exist_ok=True)
-    observation = env.reset(task_config=task)
+    with mlflow.start_span("reset", span_type=SpanType.TOOL) as span:
+        observation = env.reset(task_config=task)
+        observation_attachment = Attachment(
+            content_type="image/png", content_bytes=observation["screenshot"]
+        )
+
+        span.set_outputs({"observation": observation_attachment})
+
     agent.reset()
-    (result_dir / "initial.png").write_bytes(observation["screenshot"])
+
     env.controller.start_recording()
+
     try:
-        with (result_dir / "traj.jsonl").open("w", encoding="utf-8") as trajectory:
-            for step in range(1, args.max_steps + 1):
-                response, actions = agent.predict(task["instruction"], observation)
+        for step in range(1, settings["max_steps"] + 1):
+            with mlflow.start_span(f"step_{step}", span_type=SpanType.CHAIN):
+
+                with mlflow.start_span("predict", span_type=SpanType.AGENT) as span:
+                    response, actions = agent.predict(task["instruction"], observation)
+                    span.set_inputs(
+                        {"instruction": task["instruction"], "observation": observation_attachment}
+                    )
+                    span.set_outputs({"response": response, "actions": actions})
+
                 is_done = False
                 for action_index, action in enumerate(actions, start=1):
                     logger.info("Task %s, step %d: %s", task["id"], step, action)
-                    observation, reward, is_done, info = env.step(
-                        action, args.sleep_after_execution
-                    )
-                    screenshot_file = f"step_{step}_{action_index}.png"
-                    (result_dir / screenshot_file).write_bytes(observation["screenshot"])
-                    trajectory.write(
-                        json.dumps(
+
+                    with mlflow.start_span(
+                        f"action_{action_index}", span_type=SpanType.TOOL
+                    ) as span:
+                        observation, reward, is_done, info = env.step(
+                            action, settings["sleep_after_execution"]
+                        )
+                        observation_attachment = Attachment(
+                            content_type="image/png", content_bytes=observation["screenshot"]
+                        )
+
+                        span.set_inputs(
+                            {"action": action, "pause": settings["sleep_after_execution"]}
+                        )
+                        span.set_outputs(
                             {
-                                "step_num": step,
-                                "action": action,
-                                "response": response,
                                 "reward": reward,
                                 "done": is_done,
                                 "info": info,
-                                "screenshot_file": screenshot_file,
+                                "observation": observation_attachment,
                             }
                         )
-                        + "\n"
-                    )
+
                     if is_done:
                         break
+
                 if is_done:
                     break
-        score = float(env.evaluate())
+
+        return {
+            "domain": task["snapshot"],
+            "task_id": task["id"],
+            "score": env.evaluate(),
+            "steps": step + 1,
+        }
+
     finally:
-        env.controller.end_recording(str(result_dir / "recording.mp4"))
-    (result_dir / "result.txt").write_text(f"{score}\n", encoding="utf-8")
-    return score
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_file:
+            env.controller.end_recording(temp_file.name)
+            temp_file.flush()
+
+            video_attachment = Attachment(content_type="video/mp4", content_bytes=temp_file.read())
+
+        with mlflow.start_span("record_video", span_type=SpanType.TOOL) as span:
+            span.set_outputs({"video": video_attachment})
 
 
 def run_tasks(
-    args: argparse.Namespace,
+    settings: SettingsDict,
     agent_class: type[Agent],
     agent_config: dict,
     tasks: list[tuple[str, str, dict]],
-) -> list[float]:
+    experiment_id: str,
+) -> list[TaskResultDict]:
     """Reuse one agent and environment to evaluate a worker's assigned tasks.
 
     Args:
-        args: Parsed benchmark settings.
+        settings: Benchmark settings.
         agent_class: Agent subclass to instantiate with the configuration dictionary.
         agent_config: Agent settings loaded from JSON without modification.
         tasks: Domain, task ID, and task configuration triples assigned to this worker.
+        experiment_id: The ID of the MLflow experiment.
 
     Returns:
         One score per task, including zero for tasks that failed with an exception.
     """
+    from desktop_env.desktop_env import DesktopEnv
 
     logging.basicConfig(
         level=logging.INFO,
@@ -157,41 +213,61 @@ def run_tasks(
         stream=sys.stdout,
         force=True,
     )
-    from desktop_env.desktop_env import DesktopEnv
+
+    mlflow.set_tracking_uri(config("MLFLOW_TRACKING_URI"))
+    mlflow.openai.autolog()
+    mlflow.set_experiment(experiment_id=experiment_id)
 
     agent = agent_class(agent_config)
     snapshot_name = "init_state"
-    if args.provider_name == "aws":
-        os.environ["AWS_REGION"] = args.aws_region
+    if settings["provider_name"] == "aws":
+        os.environ["AWS_REGION"] = settings["aws_region"]
         from desktop_env.providers.aws.manager import IMAGE_ID_MAP
 
-        snapshot_name = IMAGE_ID_MAP[args.aws_region][(1920, 1080)]
+        snapshot_name = IMAGE_ID_MAP[settings["aws_region"]][(1920, 1080)]
+
     env = DesktopEnv(
-        provider_name=args.provider_name,
-        region=args.aws_region,
-        path_to_vm=args.path_to_vm,
+        provider_name=settings["provider_name"],
+        region=settings["aws_region"],
+        path_to_vm=settings["path_to_vm"],
         snapshot_name=snapshot_name,
         action_space="pyautogui",
-        headless=args.headless,
+        headless=settings["headless"],
         require_a11y_tree=False,
-        enable_proxy=args.enable_proxy,
-        client_password=args.password,
+        enable_proxy=settings["enable_proxy"],
+        client_password=settings["password"],
     )
+
     try:
-        scores = []
+        task_results = []
         for domain, task_id, task in tasks:
-            result_dir = args.result_dir / domain / task_id
             logger.info("Running %s/%s", domain, task_id)
+
             try:
-                score = run_task(agent, env, task, result_dir, args)
-            except Exception as error:
+                with (
+                    mlflow.tracing.context(tags={"domain": domain, "task_id": task_id}),
+                    mlflow.start_span("task", span_type=SpanType.CHAIN) as task_span,
+                ):
+                    task_span.set_inputs(
+                        {"task": task, "settings": settings, "agent_config": agent_config}
+                    )
+
+                    task_result = run_task(agent, env, task, settings)
+
+                    logger.info(
+                        "Results for %s/%s: score=%.4f steps=%d",
+                        domain,
+                        task_id,
+                        task_result["score"],
+                        task_result["steps"],
+                    )
+                    task_results.append(task_result)
+
+                    task_span.set_outputs(task_result)
+            except Exception:
                 logger.exception("Task %s/%s failed", domain, task_id)
-                result_dir.mkdir(parents=True, exist_ok=True)
-                (result_dir / "error.txt").write_text(str(error) + "\n", encoding="utf-8")
-                score = 0.0
-            scores.append(score)
-            logger.info("Score for %s/%s: %.4f", domain, task_id, score)
-        return scores
+
+        return task_results
     finally:
         env.close()
 
@@ -205,6 +281,10 @@ def main() -> None:
         stream=sys.stdout,
         force=True,
     )
+
+    mlflow.set_tracking_uri(config("MLFLOW_TRACKING_URI"))
+    mlflow.openai.autolog()
+
     args = parse_args()
     agent_class = load_agent_class(args.agent_path)
     agent_config = json.loads(args.agent_config.read_text(encoding="utf-8"))
@@ -233,18 +313,62 @@ def main() -> None:
     run_id = (
         args.agent_path + "_" + datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S%fZ")
     )
-    args.result_dir = args.result_dir / run_id
     num_envs = min(args.num_envs, len(tasks))
     logger.info(
-        "Running %d tasks in %d environments. Results: %s", len(tasks), num_envs, args.result_dir
+        "Running %d tasks in %d environments. Results: %s",
+        len(tasks),
+        num_envs,
+        run_id,
     )
+
+    settings = cast(
+        SettingsDict,
+        {
+            "provider_name": args.provider_name,
+            "aws_region": args.aws_region,
+            "path_to_vm": args.path_to_vm,
+            "headless": args.headless,
+            "enable_proxy": args.enable_proxy,
+            "password": args.password,
+            "max_steps": args.max_steps,
+            "sleep_after_execution": args.sleep_after_execution,
+        },
+    )
+
+    experiment_id = mlflow.create_experiment(tags={"agent": args.agent_path}, name=run_id)
     with ProcessPoolExecutor(max_workers=num_envs, mp_context=get_context("spawn")) as executor:
         futures = [
-            executor.submit(run_tasks, args, agent_class, agent_config, tasks[index::num_envs])
+            executor.submit(
+                run_tasks,
+                settings,
+                agent_class,
+                agent_config,
+                tasks[index::num_envs],
+                experiment_id,
+            )
             for index in range(num_envs)
         ]
-        scores = [score for future in futures for score in future.result()]
-    logger.info("Average score: %.4f (%d tasks)", sum(scores) / len(scores), len(scores))
+        task_results = [task_result for future in futures for task_result in future.result()]
+
+    dataframe = pl.DataFrame(task_results)
+    success_rate = dataframe.select(pl.col("score").mean()).item()
+    average_steps = dataframe.select(pl.col("steps").mean()).item()
+    minimum_steps = dataframe.select(pl.col("steps").min()).item()
+
+    logger.info("Success rate: %.4f (%d tasks)", success_rate, len(task_results))
+    logger.info("Average steps: %.2f", average_steps)
+    logger.info("Minimum steps: %d", minimum_steps)
+
+    with mlflow.start_run(experiment_id=experiment_id, run_name="summary"):
+        mlflow.log_metrics(
+            {
+                "average_score": success_rate,
+                "average_steps": average_steps,
+                "minimum_steps": minimum_steps,
+                "num_tasks": len(task_results),
+            }
+        )
+        mlflow.log_table(dataframe.to_dict(as_series=False), artifact_file="task_results.json")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,8 @@ import json
 import sys
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import MagicMock
+from typing import cast
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -42,6 +43,24 @@ class DummyAgent(Agent):
 
 
 @pytest.fixture
+def settings(args: argparse.Namespace) -> benchmark.SettingsDict:
+    """Provide benchmark settings in the current worker interface."""
+    return cast(
+        benchmark.SettingsDict,
+        {
+            "max_steps": args.max_steps,
+            "sleep_after_execution": args.sleep_after_execution,
+            "provider_name": args.provider_name,
+            "aws_region": args.aws_region,
+            "path_to_vm": args.path_to_vm,
+            "headless": args.headless,
+            "enable_proxy": args.enable_proxy,
+            "password": args.password,
+        },
+    )
+
+
+@pytest.fixture
 def args(tmp_path: Path) -> argparse.Namespace:
     """Provide benchmark settings using temporary output paths."""
     return argparse.Namespace(
@@ -56,7 +75,6 @@ def args(tmp_path: Path) -> argparse.Namespace:
         path_to_vm=None,
         max_steps=3,
         sleep_after_execution=0.25,
-        result_dir=tmp_path / "results",
         enable_proxy=True,
     )
 
@@ -64,7 +82,7 @@ def args(tmp_path: Path) -> argparse.Namespace:
 @pytest.fixture
 def task() -> dict:
     """Provide a minimal task with a deterministic instruction."""
-    return {"id": "task-1", "instruction": "Complete the task"}
+    return {"id": "task-1", "snapshot": "chrome", "instruction": "Complete the task"}
 
 
 @pytest.fixture
@@ -105,6 +123,7 @@ def test_parse_args(monkeypatch: pytest.MonkeyPatch) -> None:
             "5",
             "--sleep-after-execution",
             "0.5",
+            "--enable-proxy",
         ],
     )
     settings = benchmark.parse_args()
@@ -119,6 +138,7 @@ def test_parse_args(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.path_to_vm == "machine.vmx"
     assert settings.max_steps == 5
     assert settings.sleep_after_execution == 0.5
+    assert settings.enable_proxy is True
     assert "model" not in vars(settings)
     assert "action_space" not in vars(settings)
     assert "observation_type" not in vars(settings)
@@ -169,57 +189,54 @@ def test_load_agent_class_requires_dotted_path() -> None:
         benchmark.load_agent_class("DummyAgent")
 
 
-def test_run_task_saves_actions_and_stops_when_done(
-    args: argparse.Namespace, env: MagicMock, task: dict
+def test_run_task_tracks_actions_and_stops_when_done(
+    args: argparse.Namespace, env: MagicMock, task: dict, settings: benchmark.SettingsDict
 ) -> None:
-    """Preserve action artifacts and stop the batch when the environment finishes."""
+    """Preserve action steps and stop as soon as the environment marks the task complete."""
     agent = DummyAgent({"actions": ["pyautogui.click()", "DONE", "unused"]})
     env.step.side_effect = [
         ({"screenshot": b"clicked"}, 0, False, {}),
         ({"screenshot": b"done"}, 0, True, {"done": True}),
     ]
-    score = benchmark.run_task(agent, env, task, args.result_dir, args)
-    assert score == 1.0
+    result = benchmark.run_task(agent, env, task, settings)
+    assert result["score"] == 1.0
+    assert result["domain"] == "chrome"
+    assert result["task_id"] == "task-1"
+    assert result["steps"] == 2
     env.reset.assert_called_once_with(task_config=task)
     assert env.step.call_args_list == [
-        (("pyautogui.click()", 0.25),),
-        (("DONE", 0.25),),
+        call("pyautogui.click()", 0.25),
+        call("DONE", 0.25),
     ]
-    assert (args.result_dir / "initial.png").read_bytes() == b"initial"
-    assert (args.result_dir / "step_1_1.png").read_bytes() == b"clicked"
-    assert (args.result_dir / "step_1_2.png").read_bytes() == b"done"
-    trajectory = [
-        json.loads(line) for line in (args.result_dir / "traj.jsonl").read_text().splitlines()
-    ]
-    assert [entry["action"] for entry in trajectory] == ["pyautogui.click()", "DONE"]
-    assert trajectory[-1]["response"] == "response"
-    assert trajectory[-1]["done"] is True
-    assert (args.result_dir / "result.txt").read_text() == "1.0\n"
     env.controller.start_recording.assert_called_once_with()
-    env.controller.end_recording.assert_called_once_with(str(args.result_dir / "recording.mp4"))
+    env.controller.end_recording.assert_called_once()
+    env.evaluate.assert_called_once_with()
 
 
 def test_run_task_respects_prediction_limit(
-    args: argparse.Namespace, env: MagicMock, task: dict
+    args: argparse.Namespace, env: MagicMock, task: dict, settings: benchmark.SettingsDict
 ) -> None:
     """Evaluate after the prediction budget is exhausted."""
     env.step.return_value = ({"screenshot": b"step"}, 0, False, {})
     agent = DummyAgent({"actions": ["WAIT"]})
-    benchmark.run_task(agent, env, task, args.result_dir, args)
+    benchmark.run_task(agent, env, task, settings)
     assert env.step.call_count == args.max_steps
     env.evaluate.assert_called_once_with()
 
 
 @pytest.mark.parametrize("failing_method", ["step", "evaluate"])
 def test_run_task_ends_recording_on_error(
-    args: argparse.Namespace, env: MagicMock, task: dict, failing_method: str
+    args: argparse.Namespace,
+    env: MagicMock,
+    task: dict,
+    settings: benchmark.SettingsDict,
+    failing_method: str,
 ) -> None:
     """Close recordings without marking failed tasks complete."""
     getattr(env, failing_method).side_effect = RuntimeError("failed")
     with pytest.raises(RuntimeError, match="failed"):
-        benchmark.run_task(DummyAgent(AGENT_CONFIG), env, task, args.result_dir, args)
+        benchmark.run_task(DummyAgent(AGENT_CONFIG), env, task, settings)
     env.controller.end_recording.assert_called_once()
-    assert not (args.result_dir / "result.txt").exists()
 
 
 @pytest.mark.parametrize("provider_name", ["docker", "aws"])
@@ -229,8 +246,9 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
     task: dict,
     monkeypatch: pytest.MonkeyPatch,
     provider_name: str,
+    settings: benchmark.SettingsDict,
 ) -> None:
-    """Reuse the VM, count task errors as zero, and always release the environment."""
+    """Reuse the VM and keep successful task results while logging task failures."""
     desktop_module = ModuleType("desktop_env.desktop_env")
     environment_class = MagicMock(return_value=env)
     setattr(desktop_module, "DesktopEnv", environment_class)
@@ -240,11 +258,24 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
     monkeypatch.setitem(sys.modules, "desktop_env.providers.aws.manager", aws_module)
     monkeypatch.setenv("AWS_REGION", "previous-region")
     args.provider_name = provider_name
+    settings["provider_name"] = provider_name
+    monkeypatch.setattr(benchmark.mlflow, "set_tracking_uri", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(benchmark.mlflow, "openai", MagicMock())
+    monkeypatch.setattr(benchmark.mlflow, "create_experiment", lambda **_kwargs: 123)
+    monkeypatch.setattr(benchmark.mlflow, "set_experiment", lambda **_kwargs: None)
+    monkeypatch.setattr(benchmark.mlflow, "start_run", lambda **_kwargs: MagicMock())
+    monkeypatch.setattr(benchmark.mlflow, "log_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(benchmark.mlflow, "log_table", lambda *_args, **_kwargs: None)
+
     env.reset.side_effect = [RuntimeError("task setup failed"), {"screenshot": b"initial"}]
-    scores = benchmark.run_tasks(
-        args, DummyAgent, AGENT_CONFIG, [("chrome", "failed", task), ("chrome", "passed", task)]
+    task_results = benchmark.run_tasks(
+        settings,
+        DummyAgent,
+        AGENT_CONFIG,
+        [("chrome", "failed", task), ("chrome", "passed", task)],
+        "test-experiment",
     )
-    assert scores == [0.0, 1.0]
+    assert [result["score"] for result in task_results] == [1.0]
     environment_class.assert_called_once_with(
         provider_name=provider_name,
         region="us-east-1",
@@ -257,9 +288,6 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
         client_password="test-password",
     )
     env.close.assert_called_once_with()
-    assert (args.result_dir / "chrome/failed/error.txt").read_text() == "task setup failed\n"
-    assert not (args.result_dir / "chrome/failed/result.txt").exists()
-    assert (args.result_dir / "chrome/passed/result.txt").read_text() == "1.0\n"
 
 
 def test_main_distributes_tasks_across_workers(
@@ -271,19 +299,28 @@ def test_main_distributes_tasks_across_workers(
     task_dir = args.tasks.parent / "examples/chrome"
     task_dir.mkdir(parents=True)
     for task_id in ["a", "b", "c"]:
-        (task_dir / f"{task_id}.json").write_text(json.dumps({"id": task_id}))
+        (task_dir / f"{task_id}.json").write_text(json.dumps({"id": task_id, "snapshot": "chrome"}))
     args.num_envs = 2
     monkeypatch.setattr(benchmark, "parse_args", lambda: args)
     executor_class = MagicMock()
     executor = executor_class.return_value.__enter__.return_value
-    executor.submit.return_value.result.return_value = [1.0]
+    executor.submit.return_value.result.return_value = [
+        {"domain": "chrome", "task_id": "a", "score": 1.0, "steps": 1}
+    ]
     monkeypatch.setattr(benchmark, "ProcessPoolExecutor", executor_class)
+    monkeypatch.setattr(benchmark.mlflow, "set_tracking_uri", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(benchmark.mlflow, "openai", MagicMock())
+    monkeypatch.setattr(benchmark.mlflow, "create_experiment", lambda **_kwargs: 123)
+    monkeypatch.setattr(benchmark.mlflow, "start_run", lambda **_kwargs: MagicMock())
+    monkeypatch.setattr(benchmark.mlflow, "log_metrics", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(benchmark.mlflow, "log_table", lambda *_args, **_kwargs: None)
     benchmark.main()
     assert executor_class.call_args.kwargs["max_workers"] == 2
     submissions = executor.submit.call_args_list
     assert len(submissions) == 2
     assert [task_id for _, task_id, _ in submissions[0].args[4]] == ["a", "c"]
     assert [task_id for _, task_id, _ in submissions[1].args[4]] == ["b"]
+    assert submissions[0].args[1] is not None
     assert submissions[0].args[2] is DummyAgent
     assert submissions[0].args[3] == AGENT_CONFIG
 

@@ -27,6 +27,7 @@ dependencies = [
     "openai==3.35.1",
     "backoff==2.2.1",
     "beautifulsoup4>=4.12",
+    "mlflow>=3.17.1",
 ]
 
 [dependency-groups]
