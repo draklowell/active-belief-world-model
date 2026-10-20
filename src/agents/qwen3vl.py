@@ -579,8 +579,4 @@ class Qwen3VLAgent(Agent):
         )
         self.actions.append(instruction_summary)
 
-        logger.info("Model response: %s", response)
-        logger.info("Parsed instruction: %s", instruction_summary)
-        logger.info("Generated code: %s", pyautogui_code)
-
         return response, pyautogui_code

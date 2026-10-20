@@ -1,7 +1,7 @@
 # Based on https://github.com/xlang-ai/OSWorld/blob/main/scripts/python/run_multienv_qwen3vl.py
 
 import argparse
-import datetime
+import datetime as dt
 import json
 import logging
 import os
@@ -13,9 +13,9 @@ from multiprocessing import get_context
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, cast
 
+import dagshub
 import mlflow
 import polars as pl
-from decouple import config
 from mlflow.entities import SpanType
 from mlflow.tracing.attachments import Attachment
 
@@ -25,6 +25,27 @@ if TYPE_CHECKING:
     from desktop_env.desktop_env import DesktopEnv
 
 logger = logging.getLogger(__name__)
+
+
+def init_mlflow(mlflow_tracking_uri: str) -> None:
+    """Initialize MLflow tracking server and autologging.
+
+    Args:
+        mlflow_tracking_uri: Optional MLflow tracking URI.
+            If not provided, uses the default DagsHub tracking server.
+    """
+
+    if mlflow_tracking_uri == "dagshub":
+        dagshub.init(repo_owner="draklowell", repo_name="active-belief-world-model", mlflow=True)
+        mlflow.openai.autolog()
+    elif mlflow_tracking_uri == "memory":
+        mlflow.set_tracking_uri("sqlite:///:memory:")
+        mlflow.openai.autolog()
+    elif mlflow_tracking_uri == "disabled":
+        mlflow.tracing.disable()
+    else:
+        mlflow.set_tracking_uri(mlflow_tracking_uri)
+        mlflow.openai.autolog()
 
 
 class SettingsDict(TypedDict):
@@ -37,6 +58,8 @@ class SettingsDict(TypedDict):
     enable_proxy: bool
     password: str
     num_envs: int
+    mlflow_tracking_uri: str
+    mlflow_enabled: bool
 
 
 class TaskResultDict(TypedDict):
@@ -74,6 +97,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--enable-proxy", action="store_true", help="Enable proxy for agent's network access."
     )
+    parser.add_argument(
+        "--experiment-name",
+        default=None,
+        help="Optional suffix for the MLflow experiment name.",
+    )
+    parser.add_argument(
+        "--experiment-tags",
+        nargs="+",
+        metavar="KEY=VALUE",
+        default=[],
+        help="Optional tags for the MLflow experiment.",
+    )
+    parser.add_argument(
+        "--mlflow",
+        default="dagshub",
+        help="MLflow tracking server to use ('dagshub', 'disabled' or a custom URI).",
+    )
+
     args = parser.parse_args()
     if args.num_envs < 1 or args.max_steps < 1 or args.sleep_after_execution < 0:
         parser.error(
@@ -214,9 +255,9 @@ def run_tasks(
         force=True,
     )
 
-    mlflow.set_tracking_uri(config("MLFLOW_TRACKING_URI"))
-    mlflow.openai.autolog()
-    mlflow.set_experiment(experiment_id=experiment_id)
+    init_mlflow(settings["mlflow_tracking_uri"])
+    if settings["mlflow_enabled"]:
+        mlflow.set_experiment(experiment_id=experiment_id)
 
     agent = agent_class(agent_config)
     snapshot_name = "init_state"
@@ -245,7 +286,10 @@ def run_tasks(
 
             try:
                 with (
-                    mlflow.tracing.context(tags={"domain": domain, "task_id": task_id}),
+                    mlflow.tracing.context(
+                        tags={"domain": domain, "task_id": task_id},
+                        enabled=settings["mlflow_enabled"],
+                    ),
                     mlflow.start_span("task", span_type=SpanType.CHAIN) as task_span,
                 ):
                     task_span.set_inputs(
@@ -282,10 +326,10 @@ def main() -> None:
         force=True,
     )
 
-    mlflow.set_tracking_uri(config("MLFLOW_TRACKING_URI"))
-    mlflow.openai.autolog()
-
     args = parse_args()
+
+    init_mlflow(args.mlflow)
+
     agent_class = load_agent_class(args.agent_path)
     agent_config = json.loads(args.agent_config.read_text(encoding="utf-8"))
     if not isinstance(agent_config, dict):
@@ -310,15 +354,17 @@ def main() -> None:
         logger.info("No tasks selected. Average score: 0.0000")
         return
 
-    run_id = (
-        args.agent_path + "_" + datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    )
+    experiment_name = f"benchmark_{args.agent_path}"
+    if args.experiment_name:
+        experiment_name = f"{experiment_name}_{args.experiment_name}"
+    experiment_name = f"{experiment_name}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+
     num_envs = min(args.num_envs, len(tasks))
     logger.info(
         "Running %d tasks in %d environments. Results: %s",
         len(tasks),
         num_envs,
-        run_id,
+        experiment_name,
     )
 
     settings = cast(
@@ -332,10 +378,22 @@ def main() -> None:
             "password": args.password,
             "max_steps": args.max_steps,
             "sleep_after_execution": args.sleep_after_execution,
+            "mlflow_tracking_uri": args.mlflow,
+            "mlflow_enabled": args.mlflow != "disabled",
         },
     )
 
-    experiment_id = mlflow.create_experiment(tags={"agent": args.agent_path}, name=run_id)
+    if settings["mlflow_enabled"]:
+        experiment_id = mlflow.create_experiment(
+            tags={"agent": args.agent_path}, name=experiment_name
+        )
+
+        for tag in args.experiment_tags:
+            key, value = tag.split("=", 1)
+            mlflow.set_experiment_tag(key, value)
+    else:
+        experiment_id = ""
+
     with ProcessPoolExecutor(max_workers=num_envs, mp_context=get_context("spawn")) as executor:
         futures = [
             executor.submit(
@@ -359,16 +417,17 @@ def main() -> None:
     logger.info("Average steps: %.2f", average_steps)
     logger.info("Minimum steps: %d", minimum_steps)
 
-    with mlflow.start_run(experiment_id=experiment_id, run_name="summary"):
-        mlflow.log_metrics(
-            {
-                "average_score": success_rate,
-                "average_steps": average_steps,
-                "minimum_steps": minimum_steps,
-                "num_tasks": len(task_results),
-            }
-        )
-        mlflow.log_table(dataframe.to_dict(as_series=False), artifact_file="task_results.json")
+    if settings["mlflow_enabled"]:
+        with mlflow.start_run(experiment_id=experiment_id, run_name="summary"):
+            mlflow.log_metrics(
+                {
+                    "average_score": success_rate,
+                    "average_steps": average_steps,
+                    "minimum_steps": minimum_steps,
+                    "num_tasks": len(task_results),
+                }
+            )
+            mlflow.log_table(dataframe.to_dict(as_series=False), artifact_file="task_results.json")
 
 
 if __name__ == "__main__":

@@ -56,6 +56,8 @@ def settings(args: argparse.Namespace) -> benchmark.SettingsDict:
             "headless": args.headless,
             "enable_proxy": args.enable_proxy,
             "password": args.password,
+            "mlflow_tracking_uri": args.mlflow,
+            "mlflow_enabled": args.mlflow != "disabled",
         },
     )
 
@@ -76,6 +78,9 @@ def args(tmp_path: Path) -> argparse.Namespace:
         max_steps=3,
         sleep_after_execution=0.25,
         enable_proxy=True,
+        experiment_name=None,
+        experiment_tags=[],
+        mlflow="disabled",
     )
 
 
@@ -259,13 +264,6 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
     monkeypatch.setenv("AWS_REGION", "previous-region")
     args.provider_name = provider_name
     settings["provider_name"] = provider_name
-    monkeypatch.setattr(benchmark.mlflow, "set_tracking_uri", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(benchmark.mlflow, "openai", MagicMock())
-    monkeypatch.setattr(benchmark.mlflow, "create_experiment", lambda **_kwargs: 123)
-    monkeypatch.setattr(benchmark.mlflow, "set_experiment", lambda **_kwargs: None)
-    monkeypatch.setattr(benchmark.mlflow, "start_run", lambda **_kwargs: MagicMock())
-    monkeypatch.setattr(benchmark.mlflow, "log_metrics", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(benchmark.mlflow, "log_table", lambda *_args, **_kwargs: None)
 
     env.reset.side_effect = [RuntimeError("task setup failed"), {"screenshot": b"initial"}]
     task_results = benchmark.run_tasks(
@@ -308,12 +306,6 @@ def test_main_distributes_tasks_across_workers(
         {"domain": "chrome", "task_id": "a", "score": 1.0, "steps": 1}
     ]
     monkeypatch.setattr(benchmark, "ProcessPoolExecutor", executor_class)
-    monkeypatch.setattr(benchmark.mlflow, "set_tracking_uri", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(benchmark.mlflow, "openai", MagicMock())
-    monkeypatch.setattr(benchmark.mlflow, "create_experiment", lambda **_kwargs: 123)
-    monkeypatch.setattr(benchmark.mlflow, "start_run", lambda **_kwargs: MagicMock())
-    monkeypatch.setattr(benchmark.mlflow, "log_metrics", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(benchmark.mlflow, "log_table", lambda *_args, **_kwargs: None)
     benchmark.main()
     assert executor_class.call_args.kwargs["max_workers"] == 2
     submissions = executor.submit.call_args_list
