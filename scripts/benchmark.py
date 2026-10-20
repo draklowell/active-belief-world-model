@@ -10,10 +10,12 @@ from concurrent.futures import ProcessPoolExecutor
 from importlib import import_module
 from multiprocessing import get_context
 from pathlib import Path
-
-from desktop_env.desktop_env import DesktopEnv
+from typing import TYPE_CHECKING
 
 from agents.base import Agent
+
+if TYPE_CHECKING:
+    from desktop_env.desktop_env import DesktopEnv
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +76,7 @@ def load_agent_class(agent_path: str) -> type[Agent]:
 
 
 def run_task(
-    agent: Agent, env: DesktopEnv, task: dict, result_dir: Path, args: argparse.Namespace
+    agent: Agent, env: "DesktopEnv", task: dict, result_dir: Path, args: argparse.Namespace
 ) -> float:
     """Run one task and save its trajectory, screenshots, recording, and score.
 
@@ -155,6 +157,8 @@ def run_tasks(
         stream=sys.stdout,
         force=True,
     )
+    from desktop_env.desktop_env import DesktopEnv
+
     agent = agent_class(agent_config)
     snapshot_name = "init_state"
     if args.provider_name == "aws":

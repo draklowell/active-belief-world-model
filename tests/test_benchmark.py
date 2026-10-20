@@ -51,13 +51,13 @@ def args(tmp_path: Path) -> argparse.Namespace:
         password="test-password",
         aws_region="us-east-1",
         num_envs=1,
-        domain="all",
         tasks=tmp_path / "tasks.json",
         headless=True,
         path_to_vm=None,
         max_steps=3,
         sleep_after_execution=0.25,
         result_dir=tmp_path / "results",
+        enable_proxy=True,
     )
 
 
@@ -96,8 +96,6 @@ def test_parse_args(monkeypatch: pytest.MonkeyPatch) -> None:
             "ap-east-1",
             "--num-envs",
             "2",
-            "--domain",
-            "chrome",
             "--tasks",
             "evaluation_examples/test.json",
             "--headless",
@@ -116,7 +114,6 @@ def test_parse_args(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.password == "secret"
     assert settings.aws_region == "ap-east-1"
     assert settings.num_envs == 2
-    assert settings.domain == "chrome"
     assert settings.tasks == Path("evaluation_examples/test.json")
     assert settings.headless is True
     assert settings.path_to_vm == "machine.vmx"
@@ -265,17 +262,16 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
     assert (args.result_dir / "chrome/passed/result.txt").read_text() == "1.0\n"
 
 
-def test_main_filters_domain_and_distributes_tasks(
+def test_main_distributes_tasks_across_workers(
     args: argparse.Namespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Load configuration unchanged and assign each selected task to one worker."""
     args.agent_config.write_text(json.dumps(AGENT_CONFIG))
-    args.tasks.write_text(json.dumps({"chrome": ["a", "b", "c"], "other": ["excluded"]}))
+    args.tasks.write_text(json.dumps({"chrome": ["a", "b", "c"]}))
     task_dir = args.tasks.parent / "examples/chrome"
     task_dir.mkdir(parents=True)
     for task_id in ["a", "b", "c"]:
         (task_dir / f"{task_id}.json").write_text(json.dumps({"id": task_id}))
-    args.domain = "chrome"
     args.num_envs = 2
     monkeypatch.setattr(benchmark, "parse_args", lambda: args)
     executor_class = MagicMock()
