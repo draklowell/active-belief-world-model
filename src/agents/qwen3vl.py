@@ -274,17 +274,14 @@ class Qwen3VLAgent(Agent):
             '{"name": <function-name>, "arguments": <args-json-object>}\n'
             "</tool_call>\n\n"
             "# Response format\n\n"
-            "Structure every response using these XML tags:\n"
-            "<action>A short imperative sentence describing what you are doing "
-            "in the UI.</action>\n"
-            "<tool_call>\n"
-            '{"name": <function-name>, "arguments": <args-json-object>}\n'
-            "</tool_call>\n\n"
+            "Response format for every step:\n"
+            "1) Action: a short imperative describing what to do in the UI.\n"
+            "2) A single <tool_call>...</tool_call> block containing only the JSON: "
+            '{"name": <function-name>, "arguments": <args-json-object>}.\n\n'
             "Rules:\n"
-            "- Always wrap the action description in <action>...</action> tags.\n"
-            "- Follow it with exactly one <tool_call>...</tool_call> block.\n"
-            "- Be brief: one sentence inside <action>.\n"
-            "- Do not output anything outside those two XML blocks.\n"
+            "- Output exactly in the order: Action, <tool_call>.\n"
+            "- Be brief: one sentence for Action.\n"
+            "- Do not output anything else outside those parts.\n"
             "- If finishing, use action=terminate in the tool call."
         )
 
@@ -496,9 +493,8 @@ class Qwen3VLAgent(Agent):
         """Parse model response into action description and executable commands.
 
         Parses the full response text as HTML/XML using BeautifulSoup, extracting
-        the action description from an <action> tag and tool calls from <tool_call>
-        tags. Falls back to deriving an action description from the first executed
-        command when no <action> tag is present.
+        the action description from the text before and after tool calls and tool
+        calls from <tool_call> tags.
 
         Args:
             response: Raw completion text from model.
@@ -514,9 +510,6 @@ class Qwen3VLAgent(Agent):
             return "", []
 
         soup = BeautifulSoup(response, "html.parser")
-
-        action_tag = soup.find("action")
-        low_level_instruction = action_tag.get_text(strip=True) if action_tag else ""
 
         pyautogui_code: list[str] = []
         for tool_call_tag in soup.find_all("tool_call"):
@@ -535,11 +528,11 @@ class Qwen3VLAgent(Agent):
             except (json.JSONDecodeError, KeyError) as error:
                 logger.error("Failed to parse tool call: %s", error)
 
-        if not low_level_instruction and pyautogui_code:
-            action_type = pyautogui_code[0].split(".", 1)[-1].split("(", 1)[0]
-            low_level_instruction = f"Performing {action_type} action"
+        action = soup.find_all(string=True, recursive=False)
 
-        return low_level_instruction, pyautogui_code
+        clean_text = "\n".join(str(substring).strip() for substring in action)
+
+        return clean_text, pyautogui_code
 
     def predict(self, instruction: str, observation: dict) -> tuple[str, list[str]]:
         """Generate response and actions for the current screenshot observation.
@@ -585,4 +578,9 @@ class Qwen3VLAgent(Agent):
             processed_height,
         )
         self.actions.append(instruction_summary)
+
+        logger.info("Model response: %s", response)
+        logger.info("Parsed instruction: %s", instruction_summary)
+        logger.info("Generated code: %s", pyautogui_code)
+
         return response, pyautogui_code
