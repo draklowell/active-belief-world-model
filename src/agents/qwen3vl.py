@@ -153,8 +153,8 @@ class Qwen3VLAgent(Agent):
         self.responses: list[str] = []
         self.screenshots: list[str] = []
 
-        base_url = cfg.get("base_url") or config("OPENAI_BASE_URL")
-        api_key = cfg.get("api_key") or config("OPENAI_API_KEY")
+        base_url = config("OPENAI_BASE_URL")
+        api_key = config("OPENAI_API_KEY")
         self._client = openai.OpenAI(base_url=base_url, api_key=api_key)
 
     def reset(self) -> None:
