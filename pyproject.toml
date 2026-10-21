@@ -10,12 +10,12 @@ requires-python = ">=3.14,<3.15"
 readme = "README.md"
 license = { text = "MIT" }
 dependencies = [
-    "numpy>=2.3.2,<3",
+    "numpy>=1.26,<2",
     "polars==2.0.0",
     "scikit-learn==1.9.1",
     "joblib==1.5.3",
     "PyYAML==6.0.3",
-    "Pillow==12.3.0",
+    "Pillow~=11.0.0",
     "streamlit==1.61.1",
     "huggingface_hub==1.27.0",
     "plotly==7.1.0",
@@ -58,7 +58,6 @@ python-preference = "only-managed"
 constraint-dependencies = [
     "borb==2.1.25",
     "matplotlib>=3.10.7,<4",
-    "pandas>=2.3.3,<3",
 ]
 exclude-dependencies = [
     { package = { name = "desktop-env" }, dependencies = [
@@ -76,9 +75,6 @@ exclude-dependencies = [
         "parallel-web",
         "paddlepaddle",
         "pygame",
-        "numpy",
-        "pillow",
-        "pandas",
         "matplotlib"
     ]}
 ]

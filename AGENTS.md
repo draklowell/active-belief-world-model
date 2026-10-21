@@ -9,6 +9,7 @@
 5. Run relevant tests and quality checks after modifications. Never claim a check passed unless it was executed.
 6. Report changes, verification results, and remaining issues concisely.
 7. Never stage, commit, push, or create branches unless explicitly requested.
+8. Preserve OSWorld evaluator dependency bounds from `desktop-env`: `numpy>=1.26,<2`, `Pillow~=11.0.0`, and `pandas>=2.2,<2.3`. Resolve native build issues within these bounds. See [dependency compatibility](docs/dependency-compatibility.md) for the Python and native-build limitations.
 
 ## Python Style
 
