@@ -1,35 +1,38 @@
+import base64
 import logging
-from importlib import import_module
 from io import BytesIO
-from typing import Any
 
+from decouple import config
+from openai import OpenAI
 from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
 
 class MageFlowImageModel:
-    """Lazy adapter for the official MageFlowPipeline image-editing API.
+    """Remote Mage client using an OpenAI-compatible image-editing endpoint.
 
     Args:
-        model_id: Official editing checkpoint ID or local checkpoint directory.
-        device: Device passed to the official pipeline loader.
+        model: Model identifier exposed by the image-editing server.
         steps: Number of denoising steps, normally four for Turbo or thirty for Base.
         cfg: Classifier-free guidance scale, normally one for Turbo or five for Base.
         max_size: Optional longest-side cap; omit to retain the source resolution.
         seed: Reproducible generation seed.
-        vl_cond_long_edge: Longest-side cap for Mage's internal VLM conditioning image.
+        base_url: Image endpoint URL, or IMAGE_BASE_URL from decouple when omitted.
+        api_key_env: Environment variable containing the image endpoint API key.
+        timeout: Request timeout in seconds.
     """
 
     def __init__(
         self,
-        model_id: str = "microsoft/Mage-Flow-Edit-Turbo",
-        device: str = "cuda",
+        model: str = "microsoft/Mage-Flow-Edit-Turbo",
         steps: int = 4,
         cfg: float = 1.0,
         max_size: int | None = None,
         seed: int = 2026,
-        vl_cond_long_edge: int = 384,
+        base_url: str | None = None,
+        api_key_env: str = "IMAGE_API_KEY",
+        timeout: float = 300.0,
     ) -> None:
         if steps < 1:
             raise ValueError("Mage steps must be positive.")
@@ -37,35 +40,26 @@ class MageFlowImageModel:
             raise ValueError("Mage max_size must be at least 16 pixels when configured.")
         if seed < 0:
             raise ValueError("Mage seed must be nonnegative for reproducible inference.")
-        self.model_id = model_id
-        self.device = device
+        self.model = model
         self.steps = steps
         self.cfg = cfg
         self.max_size = max_size
         self.seed = seed
-        self.vl_cond_long_edge = vl_cond_long_edge
-        self._pipeline = None
+        self.base_url = base_url
+        self.api_key_env = api_key_env
+        self.timeout = timeout
+        self._client: OpenAI | None = None
 
-    def _load_pipeline(self) -> Any:
-        try:
-            mage_flow = import_module("mage_flow")
-        except ModuleNotFoundError as error:
-            if error.name != "mage_flow":
-                raise
-            raise RuntimeError(
-                "The official mage-flow package is required for visual inference. "
-                "Install it in a compatible CUDA environment as described in "
-                "src/world_models/README.md, or use --text-only."
-            ) from error
-        logger.info("Loading Mage checkpoint %s on %s", self.model_id, self.device)
-        return mage_flow.MageFlowPipeline.from_pretrained(self.model_id, device=self.device)
-
-    def generate(self, screenshot: bytes, text_description: str) -> bytes:
+    def generate(self, screenshot: bytes, prompt: str) -> bytes:
         """Render a transition and return PNG bytes, removing only alignment padding.
+
+        Cap the image size when configured, pad it to Mage's alignment, and submit
+        the prepared image and prompt to the remote API. Validate the returned size
+        before removing only the added padding.
 
         Args:
             screenshot: Encoded image of the current GUI state.
-            text_description: Predicted immediate UI changes to render.
+            prompt: Image-editing instruction supplied by the caller.
 
         Returns:
             PNG-encoded prediction at the source size or explicitly configured downscaled size.
@@ -82,32 +76,39 @@ class MageFlowImageModel:
         image = ImageOps.expand(
             image, border=(0, 0, padded_width - width, padded_height - height), fill="white"
         )
-        if self._pipeline is None:
-            self._pipeline = self._load_pipeline()
-        instruction = (
-            f"{text_description}\n\n"
-            "Preserve the layout, text, icons, colors, and all other GUI elements "
-            "unrelated to this transition."
-        )
-        logger.info("Rendering visual transition with %s", self.model_id)
-        images = self._pipeline.edit(
-            [instruction],
-            [image],
-            heights=[padded_height],
-            widths=[padded_width],
-            steps=self.steps,
-            cfg=self.cfg,
-            seeds=[self.seed],
-            vl_cond_long_edge=self.vl_cond_long_edge,
-        )
-        if not images or not isinstance(images[0], Image.Image):
-            raise ValueError("Mage returned no usable image.")
-        prediction = images[0]
-        if prediction.size != (padded_width, padded_height):
-            raise ValueError(
-                f"Mage returned image size {prediction.size}; "
-                f"expected {(padded_width, padded_height)}."
+        if self._client is None:
+            self._client = OpenAI(
+                base_url=self.base_url if self.base_url is not None else config("IMAGE_BASE_URL"),
+                api_key=config(self.api_key_env),
+                timeout=self.timeout,
+                max_retries=0,
             )
+        image_buffer = BytesIO()
+        image.save(image_buffer, format="PNG")
+        logger.info("Requesting image edit from %s", self.model)
+        response = self._client.images.edit(
+            model=self.model,
+            image=("screenshot.png", image_buffer.getvalue(), "image/png"),
+            prompt=prompt,
+            size=f"{padded_width}x{padded_height}",
+            n=1,
+            response_format="b64_json",
+            output_format="png",
+            extra_body={
+                "num_inference_steps": self.steps,
+                "guidance_scale": self.cfg,
+                "seed": self.seed,
+            },
+        )
+        if not response.data or not response.data[0].b64_json:
+            raise ValueError("The image inference endpoint returned no usable image.")
+        image_bytes = base64.b64decode(response.data[0].b64_json, validate=True)
         buffer = BytesIO()
-        prediction.crop((0, 0, width, height)).save(buffer, format="PNG")
+        with Image.open(BytesIO(image_bytes)) as prediction:
+            if prediction.size != (padded_width, padded_height):
+                raise ValueError(
+                    f"The image endpoint returned size {prediction.size}; "
+                    f"expected {(padded_width, padded_height)}."
+                )
+            prediction.crop((0, 0, width, height)).save(buffer, format="PNG")
         return buffer.getvalue()

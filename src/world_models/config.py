@@ -23,13 +23,13 @@ def load_cuwm_config(path: str | Path) -> dict[str, Any]:
 
 
 def build_cuwm(settings: dict[str, Any]) -> CUWM:
-    """Compose the configured textual and visual adapters without loading Mage weights.
+    """Compose the configured textual and visual API clients.
 
     Args:
         settings: Mapping of backend names and constructor options from load_cuwm_config.
 
     Returns:
-        CUWM with an OpenAI-compatible textual adapter and a lazy Mage visual adapter.
+        CUWM with an OpenAI-compatible textual client and a remote Mage image client.
     """
     from world_models.backends.mage_flow import MageFlowImageModel
     from world_models.backends.qwen_text import QwenTextModel

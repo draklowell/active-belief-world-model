@@ -54,6 +54,7 @@ logging.basicConfig(
 4. Omit optional settings to use documented defaults. TOML has no `null` value. Use native TOML values for booleans, numbers, strings, and arrays.
 5. Keep secrets in environment variables or `.env`, read through `decouple`. Configuration may name a secret variable, such as `api_key_env = "OPENAI_API_KEY"`, but must not contain its value.
 6. Document required tables, supported backends, and defaults in the component's README. Keep configuration filenames, loader behavior, CLI defaults, and examples consistent.
+7. Keep world-model orchestration, domain prompts, and workflows in the world-model facade. Backend adapters send prepared requests to inference APIs, preferably OpenAI-compatible endpoints. Model loading and GPU execution belong on the inference server.
 
 ## Docstrings
 

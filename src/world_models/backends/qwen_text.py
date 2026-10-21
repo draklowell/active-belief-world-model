@@ -9,25 +9,13 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-TRANSITION_PROMPT = (
-    "You predict immediate GUI state transitions for a computer-using world model. "
-    "Given the current screenshot and one hypothetical candidate action, describe the "
-    "visible changes that would most likely follow that action. Identify the affected "
-    "UI elements and their locations, including selection, focus, content, menus, or "
-    "dialogs when relevant. Use the screenshot as the baseline and mention relevant "
-    "unchanged elements concisely. If no visible change is expected, say so. "
-    "Do not execute the action or claim it has happened. Do not choose another action, "
-    "write a task plan, or invent hidden state or details that cannot reasonably be inferred. "
-    "Return only a concise natural-language transition description for an image editor."
-)
-
 
 class QwenTextModel:
-    """OpenAI-compatible VLM adapter for predicting GUI action consequences.
+    """OpenAI-compatible VLM client for caller-provided multimodal prompts.
 
     Args:
         model: Served VLM identifier, including aliases or fine-tuned checkpoints.
-        max_tokens: Maximum number of generated transition tokens.
+        max_tokens: Maximum number of generated text tokens.
         temperature: Text sampling temperature.
         base_url: Endpoint URL, or OPENAI_BASE_URL from decouple when omitted.
         api_key_env: Environment variable containing the API key.
@@ -53,23 +41,23 @@ class QwenTextModel:
             max_retries=0,
         )
 
-    def generate(self, screenshot: bytes, action: str) -> str:
-        """Predict immediate UI changes using the full-resolution screenshot.
+    def generate(self, screenshot: bytes, prompt: str, *, system_prompt: str) -> str:
+        """Request text using the supplied prompts and full-resolution screenshot.
 
         Args:
             screenshot: Encoded image of the current GUI state.
-            action: Candidate action to interpret without parsing or executing it.
+            prompt: User instruction supplied by the caller.
+            system_prompt: Domain instructions supplied by the caller.
 
         Returns:
-            Nonempty natural-language description of the expected transition.
+            Nonempty generated text.
         """
         with Image.open(BytesIO(screenshot)) as image:
-            width, height = image.size
             buffer = BytesIO()
             image.save(buffer, format="PNG")
         encoded_image = base64.b64encode(buffer.getvalue()).decode("ascii")
         messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": TRANSITION_PROMPT},
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": [
@@ -79,16 +67,12 @@ class QwenTextModel:
                     },
                     {
                         "type": "text",
-                        "text": (
-                            f"Current screenshot: {width} x {height} pixels.\n"
-                            f"Hypothetical candidate action:\n{action}\n\n"
-                            "Predict only the immediate resulting UI transition."
-                        ),
+                        "text": prompt,
                     },
                 ],
             },
         ]
-        logger.info("Predicting textual transition with %s", self.model)
+        logger.info("Requesting text from %s", self.model)
         response = self._client.chat.completions.create(
             model=self.model,
             messages=messages,
@@ -99,8 +83,8 @@ class QwenTextModel:
             raise ValueError("The textual inference endpoint returned no choices.")
         choice = response.choices[0]
         if choice.finish_reason == "length":
-            raise ValueError("The transition description was truncated; increase max_tokens.")
-        description = choice.message.content
-        if description is None or not description.strip():
-            raise ValueError("The textual inference endpoint returned no usable description.")
-        return description.strip()
+            raise ValueError("The text response was truncated; increase max_tokens.")
+        text = choice.message.content
+        if text is None or not text.strip():
+            raise ValueError("The textual inference endpoint returned no usable text.")
+        return text.strip()

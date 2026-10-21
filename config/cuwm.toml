@@ -8,9 +8,9 @@ timeout = 120.0
 
 [image_model]
 backend = "mage_flow"
-model_id = "microsoft/Mage-Flow-Edit-Turbo"
-device = "cuda"
+model = "microsoft/Mage-Flow-Edit-Turbo"
 steps = 4
 cfg = 1.0
 seed = 2026
-vl_cond_long_edge = 384
+api_key_env = "IMAGE_API_KEY"
+timeout = 300.0

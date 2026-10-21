@@ -1,6 +1,18 @@
 from world_models.base import ImageTransitionModel, TextTransitionModel
 from world_models.types import CUWMPrediction
 
+TRANSITION_PROMPT = (
+    "You predict immediate GUI state transitions for a computer-using world model. "
+    "Given the current screenshot and one hypothetical candidate action, describe the "
+    "visible changes that would most likely follow that action. Identify the affected "
+    "UI elements and their locations, including selection, focus, content, menus, or "
+    "dialogs when relevant. Use the screenshot as the baseline and mention relevant "
+    "unchanged elements concisely. If no visible change is expected, say so. "
+    "Do not execute the action or claim it has happened. Do not choose another action, "
+    "write a task plan, or invent hidden state or details that cannot reasonably be inferred. "
+    "Return only a concise natural-language transition description for an image editor."
+)
+
 
 class CUWM:
     """Stateless two-stage world model for hypothetical GUI action consequences.
@@ -28,7 +40,11 @@ class CUWM:
         Returns:
             Natural-language description of the expected UI transition.
         """
-        return self._text_model.generate(screenshot, action)
+        prompt = (
+            f"Hypothetical candidate action:\n{action}\n\n"
+            "Predict only the immediate resulting UI transition."
+        )
+        return self._text_model.generate(screenshot, prompt, system_prompt=TRANSITION_PROMPT)
 
     def generate_image(self, screenshot: bytes, text_description: str) -> bytes:
         """Realize a predicted textual transition using the original screenshot.
@@ -40,7 +56,12 @@ class CUWM:
         Returns:
             PNG-encoded image of the predicted next GUI state.
         """
-        return self._image_model.generate(screenshot, text_description)
+        prompt = (
+            f"{text_description}\n\n"
+            "Preserve the layout, text, icons, colors, and all other GUI elements "
+            "unrelated to this transition."
+        )
+        return self._image_model.generate(screenshot, prompt)
 
     def predict(self, screenshot: bytes, action: str) -> CUWMPrediction:
         """Predict a textual transition and then its visual realization.
