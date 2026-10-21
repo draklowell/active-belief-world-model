@@ -20,7 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Predict a one-step GUI state transition.")
     parser.add_argument("--screenshot", type=Path, required=True, help="Existing screenshot image.")
     parser.add_argument("--action", required=True, help="Hypothetical candidate action text.")
-    parser.add_argument("--config", type=Path, default=Path("config/cuwm.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("config/cuwm.toml"))
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--text-only", action="store_true", help="Run only the textual stage.")
     args = parser.parse_args()

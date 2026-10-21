@@ -24,7 +24,7 @@ from pathlib import Path
 
 from world_models.config import build_cuwm, load_cuwm_config
 
-cuwm = build_cuwm(load_cuwm_config("config/cuwm.yaml"))
+cuwm = build_cuwm(load_cuwm_config("config/cuwm.toml"))
 screenshot = Path("data/example.png").read_bytes()
 prediction = cuwm.predict(screenshot=screenshot, action="Select column H")
 Path("predicted_next_state.png").write_bytes(prediction.predicted_screenshot)
@@ -37,7 +37,10 @@ with objects implementing the corresponding `generate` signatures.
 
 ## Configuration
 
-`config/cuwm.yaml` selects the two implemented adapters:
+`config/cuwm.toml` selects the two implemented adapters. It follows the shared
+[configuration conventions](../../AGENTS.md#configuration-conventions): TOML for
+runtime configuration and JSON for project and service metadata. Each model table
+contains a `backend` identifier and that adapter's constructor options.
 
 | Section       | Backend                 | Default model                    |
 | ------------- | ----------------------- | -------------------------------- |
@@ -48,7 +51,7 @@ The textual model uses the existing `OPENAI_BASE_URL` and `OPENAI_API_KEY`
 environment variables through `python-decouple`, including the project's `.env`.
 The default served name matches `config/server-qwen3vl.json`. Set `base_url` in the
 text section to override the endpoint, or `api_key_env` to select a different
-secret variable. Never put the key itself in YAML. `max_tokens`, `temperature`,
+secret variable. Never put the key itself in TOML. `max_tokens`, `temperature`,
 and `timeout` are adapter options. The dedicated prompt predicts consequences,
 rather than choosing the next agent action. The adapter preserves screenshot
 dimensions when constructing its multimodal request; the server may apply its
@@ -58,10 +61,14 @@ To switch textual checkpoints, change `text_model.model` to the identifier
 actually served by your OpenAI-compatible VLM endpoint. Fine-tuned or adapter
 weights are loaded by that server. To switch visual checkpoints, change
 `image_model.model_id` to an official editing model ID or local Mage checkpoint
-directory. For `microsoft/Mage-Flow-Edit-Base`, also set `steps: 30` and `cfg: 5.0`.
-Turbo uses `steps: 4` and `cfg: 1.0`. Swapping either checkpoint leaves CUWM unchanged.
+directory. For `microsoft/Mage-Flow-Edit-Base`, also set `steps = 30` and `cfg = 5.0`.
+Turbo uses `steps = 4` and `cfg = 1.0`. Swapping either checkpoint leaves CUWM unchanged.
 Adding another backend requires its adapter and one explicit branch in
 `build_cuwm`; there is no discovery framework.
+
+The loader uses Python's standard-library `tomllib` and requires both model tables.
+Omit optional values to retain adapter defaults. For example, omitting `max_size`
+keeps the source resolution; TOML has no `null` value.
 
 The Mage adapter loads once on its first `generate` call using the official
 `MageFlowPipeline.from_pretrained(model_id, device=...)`, then calls
@@ -79,7 +86,7 @@ From the repository root in a configured project environment:
 uv run python scripts/run_cuwm.py \
   --screenshot data/example.png \
   --action "Select column H" \
-  --config config/cuwm.yaml \
+  --config config/cuwm.toml \
   --output-dir .artifacts/cuwm/inference
 ```
 
@@ -123,7 +130,7 @@ uv pip install --python .artifacts/cuwm-gpu/bin/python setuptools wheel ninja
 uv pip install --python .artifacts/cuwm-gpu/bin/python \
   --no-build-isolation flash-attn==2.8.3
 uv pip install --python .artifacts/cuwm-gpu/bin/python \
-  openai==3.35.1 python-decouple==3.8 PyYAML==6.0.3
+  openai==3.35.1 python-decouple==3.8
 ```
 
 Run only the standalone source package in that environment, avoiding the root
@@ -134,7 +141,7 @@ PYTHONPATH=src uv run --no-project --no-sync \
   --python .artifacts/cuwm-gpu/bin/python python scripts/run_cuwm.py \
   --screenshot data/example.png \
   --action "Select column H" \
-  --config config/cuwm.yaml \
+  --config config/cuwm.toml \
   --output-dir .artifacts/cuwm/inference
 ```
 
@@ -151,7 +158,7 @@ Set `max_size` to explicitly cap the longest side using aspect-preserving
 downscaling, which is logged. The resulting PNG retains the downscaled dimensions;
 it is not enlarged afterward. Alignment can require up to 15 extra inference
 pixels per dimension. Mage's internal VLM conditioning image defaults to a
-384-pixel longest side; `vl_cond_long_edge: 0` disables that cap, increasing cost.
+384-pixel longest side; `vl_cond_long_edge = 0` disables that cap, increasing cost.
 The VAE path receives the full aligned image. Start within Mage's documented
 512 to 2048 resolution range and consider the memory cost of native GUI images.
 

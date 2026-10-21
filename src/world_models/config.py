@@ -1,13 +1,12 @@
+import tomllib
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 from world_models.cuwm import CUWM
 
 
 def load_cuwm_config(path: str | Path) -> dict[str, Any]:
-    """Load the dedicated CUWM backend configuration from YAML.
+    """Load the dedicated CUWM backend configuration from TOML.
 
     Args:
         path: Path to the CUWM configuration file.
@@ -15,12 +14,11 @@ def load_cuwm_config(path: str | Path) -> dict[str, Any]:
     Returns:
         Mapping with text_model and image_model sections containing backend names and options.
     """
-    settings = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(settings, dict):
-        raise ValueError("CUWM configuration must contain a YAML mapping.")
+    with Path(path).open("rb") as config_file:
+        settings = tomllib.load(config_file)
     for section in ("text_model", "image_model"):
         if not isinstance(settings.get(section), dict):
-            raise ValueError(f"CUWM configuration requires a {section} mapping.")
+            raise ValueError(f"CUWM configuration requires a {section} table.")
     return settings
 
 
