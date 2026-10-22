@@ -1,9 +1,11 @@
 import base64
 import logging
 from io import BytesIO
+from ssl import SSLError
 
+import backoff
 from decouple import config
-from openai import OpenAI
+from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAI, RateLimitError
 from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
@@ -45,11 +47,18 @@ class MageFlowImageModel:
         self.cfg = cfg
         self.max_size = max_size
         self.seed = seed
-        self.base_url = base_url
-        self.api_key_env = api_key_env
-        self.timeout = timeout
-        self._client: OpenAI | None = None
+        self.client = OpenAI(
+            base_url=base_url if base_url is not None else config("IMAGE_BASE_URL"),
+            api_key=config(api_key_env),
+            timeout=timeout,
+        )
 
+    @backoff.on_exception(
+        backoff.constant,
+        (SSLError, RateLimitError, BadRequestError, InternalServerError, APIConnectionError),
+        interval=30,
+        max_tries=5,
+    )
     def generate(self, screenshot: bytes, prompt: str) -> bytes:
         """Render a transition and return PNG bytes, removing only alignment padding.
 
@@ -76,17 +85,10 @@ class MageFlowImageModel:
         image = ImageOps.expand(
             image, border=(0, 0, padded_width - width, padded_height - height), fill="white"
         )
-        if self._client is None:
-            self._client = OpenAI(
-                base_url=self.base_url if self.base_url is not None else config("IMAGE_BASE_URL"),
-                api_key=config(self.api_key_env),
-                timeout=self.timeout,
-                max_retries=0,
-            )
         image_buffer = BytesIO()
         image.save(image_buffer, format="PNG")
         logger.info("Requesting image edit from %s", self.model)
-        response = self._client.images.edit(
+        response = self.client.images.edit(
             model=self.model,
             image=("screenshot.png", image_buffer.getvalue(), "image/png"),
             prompt=prompt,

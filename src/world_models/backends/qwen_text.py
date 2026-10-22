@@ -1,9 +1,11 @@
 import base64
 import logging
 from io import BytesIO
+from ssl import SSLError
 
+import backoff
 from decouple import config
-from openai import OpenAI
+from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
 
@@ -34,13 +36,18 @@ class QwenTextModel:
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
-        self._client = OpenAI(
+        self.client = OpenAI(
             base_url=base_url if base_url is not None else config("OPENAI_BASE_URL"),
             api_key=config(api_key_env),
             timeout=timeout,
-            max_retries=0,
         )
 
+    @backoff.on_exception(
+        backoff.constant,
+        (SSLError, RateLimitError, BadRequestError, InternalServerError, APIConnectionError),
+        interval=30,
+        max_tries=5,
+    )
     def generate(self, screenshot: bytes, prompt: str, *, system_prompt: str) -> str:
         """Request text using the supplied prompts and full-resolution screenshot.
 
@@ -73,7 +80,7 @@ class QwenTextModel:
             },
         ]
         logger.info("Requesting text from %s", self.model)
-        response = self._client.chat.completions.create(
+        response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             max_tokens=self.max_tokens,

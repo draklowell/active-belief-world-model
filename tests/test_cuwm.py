@@ -1,10 +1,12 @@
 import base64
 import json
+import time
 from email import policy
 from email.parser import BytesParser
 from io import BytesIO
 
 import httpx2
+import openai
 import pytest
 from PIL import Image
 
@@ -58,15 +60,27 @@ def screenshot() -> bytes:
     return buffer.getvalue()
 
 
-def test_qwen_sends_caller_prompts_to_the_text_endpoint(
-    monkeypatch: pytest.MonkeyPatch, screenshot: bytes
+@pytest.fixture
+def retry_pauses(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record retry delays without sleeping during simulated API failures."""
+    pauses: list[float] = []
+    monkeypatch.setattr(time, "sleep", pauses.append)
+    return pauses
+
+
+def test_qwen_preserves_caller_prompts_after_transient_failures(
+    monkeypatch: pytest.MonkeyPatch, screenshot: bytes, retry_pauses: list[float]
 ) -> None:
-    """Forward supplied prompts and the full screenshot through the real SDK request."""
+    """Recover after SDK retries while preserving supplied prompts and image dimensions."""
+    retry_counts: list[str] = []
 
     def send_response(
         client: httpx2.Client, request: httpx2.Request, **options: object
     ) -> httpx2.Response:
         assert request.url == "https://text.test/v1/chat/completions"
+        retry_counts.append(request.headers["x-stainless-retry-count"])
+        if len(retry_counts) <= 3:
+            return httpx2.Response(503, request=request, json={"error": {"message": "Busy"}})
         body = json.loads(request.read())
         assert body["model"] == "text-model"
         assert body["messages"][0] == {"role": "system", "content": "Custom domain instruction"}
@@ -102,20 +116,26 @@ def test_qwen_sends_caller_prompts_to_the_text_endpoint(
         screenshot, "Custom candidate action", system_prompt="Custom domain instruction"
     )
     assert description == "Predicted transition"
+    assert retry_counts == ["0", "1", "2", "0"]
+    assert len(retry_pauses) == 3
 
 
 def test_mage_edits_remotely_and_removes_only_alignment_padding(
-    monkeypatch: pytest.MonkeyPatch, screenshot: bytes
+    monkeypatch: pytest.MonkeyPatch, screenshot: bytes, retry_pauses: list[float]
 ) -> None:
-    """Send an aligned screenshot to the image API and preserve the source dimensions."""
+    """Recover a remote image edit while preserving image alignment and source dimensions."""
     prediction_buffer = BytesIO()
     Image.new("RGB", (32, 32), color="green").save(prediction_buffer, format="PNG")
     encoded_prediction = base64.b64encode(prediction_buffer.getvalue()).decode("ascii")
+    retry_counts: list[str] = []
 
     def send_response(
         client: httpx2.Client, request: httpx2.Request, **options: object
     ) -> httpx2.Response:
         assert request.url == "https://image.test/v1/images/edits"
+        retry_counts.append(request.headers["x-stainless-retry-count"])
+        if len(retry_counts) <= 3:
+            return httpx2.Response(503, request=request, json={"error": {"message": "Busy"}})
         message = BytesParser(policy=policy.default).parsebytes(
             f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode() + request.read()
         )
@@ -149,6 +169,8 @@ def test_mage_edits_remotely_and_removes_only_alignment_padding(
         cfg=2.0,
     )
     result = model.generate(screenshot, "Caller-provided edit instruction")
+    assert retry_counts == ["0", "1", "2", "0"]
+    assert len(retry_pauses) == 3
     with Image.open(BytesIO(result)) as prediction:
         assert prediction.size == (31, 17)
         assert prediction.format == "PNG"
@@ -170,3 +192,32 @@ def test_mage_rejects_an_api_response_without_image_data(
     model = MageFlowImageModel(base_url="https://image.test/v1", api_key_env="CUWM_TEST_API_KEY")
     with pytest.raises(ValueError, match="no usable image"):
         model.generate(screenshot, "Edit the screenshot")
+
+
+@pytest.mark.parametrize("status_code, expected_requests", [(503, 15), (400, 5)])
+def test_mage_stops_retrying_after_the_bounded_attempt_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    screenshot: bytes,
+    retry_pauses: list[float],
+    status_code: int,
+    expected_requests: int,
+) -> None:
+    """Propagate persistent API errors after exhausting SDK and application retries."""
+    request_count = 0
+
+    def send_response(
+        client: httpx2.Client, request: httpx2.Request, **options: object
+    ) -> httpx2.Response:
+        nonlocal request_count
+        request_count += 1
+        return httpx2.Response(
+            status_code, request=request, json={"error": {"message": "Request failed"}}
+        )
+
+    monkeypatch.setenv("CUWM_TEST_API_KEY", "test-key")
+    monkeypatch.setattr(httpx2.Client, "send", send_response)
+    model = MageFlowImageModel(base_url="https://image.test/v1", api_key_env="CUWM_TEST_API_KEY")
+    with pytest.raises(openai.APIStatusError):
+        model.generate(screenshot, "Edit the screenshot")
+    assert request_count == expected_requests
+    assert len(retry_pauses) == expected_requests - 1

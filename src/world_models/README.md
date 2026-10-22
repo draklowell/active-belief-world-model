@@ -72,8 +72,15 @@ screenshot dimensions when encoding the request. Empty or truncated replies fail
 
 The Mage client accepts `steps`, `cfg`, `seed`, `max_size`, and `timeout`. Turbo
 uses `steps = 4`, `cfg = 1.0`, and `seed = 2026`. A server serving Base normally
-uses `steps = 30` and `cfg = 5.0`. The image API client is initialized on the first
-visual call, so `--text-only` requires only the textual endpoint.
+uses `steps = 30` and `cfg = 5.0`. Both API clients are initialized in their
+constructors, so both endpoints' settings must be available when CUWM is built.
+
+Both clients retain the OpenAI SDK's default two retries. Their `generate` calls
+also follow the agent's `backoff.constant` policy: five attempts with a 30-second
+interval and default full jitter for SSL, connection, rate-limit, bad-request,
+and server errors. Each application attempt can include SDK retries, allowing up
+to 15 HTTP requests for a persistent retryable server failure. Exhausted API
+failures propagate. Invalid image data and unusable model output are not retried.
 
 The loader requires `[text_model]` and `[image_model]`. Omit optional values to
 retain defaults. For example, omitting `max_size` keeps source resolution; TOML
