@@ -7,7 +7,7 @@ after the fact.
 ## Branches
 
 - `main` is always in a working state — anyone should be able to clone it and run
-  `make reproduce` successfully at any point in time.
+  `make setup` successfully at any point in time.
 - All work happens on a branch: `feat/<short-name>` for new functionality,
   `fix/<short-name>` for bug fixes, `exp/<short-name>` for experiments that might not
   pan out. No direct pushes to `main` (see `docs/branch-protection.md` to enforce this
