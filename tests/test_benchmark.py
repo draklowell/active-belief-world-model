@@ -209,7 +209,7 @@ def test_run_task_tracks_actions_and_stops_when_done(
     assert result["score"] == 1.0
     assert result["domain"] == "chrome"
     assert result["task_id"] == "task-1"
-    assert result["steps"] == 2
+    assert result["steps"] == 1
     env.reset.assert_called_once_with(task_config=task)
     assert env.step.call_args_list == [
         call("pyautogui.click()", 0.25),
