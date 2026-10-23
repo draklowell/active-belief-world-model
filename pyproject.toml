@@ -15,6 +15,7 @@ dependencies = [
     "scikit-learn==1.9.1",
     "joblib==1.5.3",
     "PyYAML==6.0.3",
+    "Pillow~=11.0.0",
     "streamlit==1.61.1",
     "huggingface_hub==1.27.0",
     "plotly==7.1.0",
@@ -22,7 +23,13 @@ dependencies = [
     "kaleido==1.5.0",
     "desktop-env==1.0.2",
     "torch==2.14.1",
+    "torchvision==0.29.1",
     "python-decouple==3.8",
+    "openai==3.35.1",
+    "backoff==2.2.1",
+    "beautifulsoup4>=4.12",
+    "mlflow>=3.17.1",
+    "graphene>=3.0",
 ]
 
 [dependency-groups]
@@ -49,6 +56,10 @@ where = ["src"]
 [tool.uv]
 required-version = ">=0.13.0"
 python-preference = "only-managed"
+constraint-dependencies = [
+    "borb==2.1.25",
+    "matplotlib>=3.10.7,<4",
+]
 exclude-dependencies = [
     { package = { name = "desktop-env" }, dependencies = [
         "torch",
@@ -63,7 +74,9 @@ exclude-dependencies = [
         "ag2",
         "ui-tars",
         "parallel-web",
-        "paddlepaddle"
+        "paddlepaddle",
+        "pygame",
+        "matplotlib"
     ]}
 ]
 

@@ -233,9 +233,11 @@ models/*
 
 # Env secrets
 .env
-test.json
 *.effective.json
 
+# Used by OSWorld forr virtual environment
+/docker_vm_data
+/cache
 
 # macOS
 .DS_Store
