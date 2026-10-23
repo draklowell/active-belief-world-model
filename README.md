@@ -143,5 +143,17 @@ uv run jupyter lab notebooks/
 
 ## License and citation
 
-Code is released under the MIT license, see [`LICENSE`](LICENSE). Datasets keep their own terms,
-see [`data/README.md`](data/README.md). Citation metadata is in [`CITATION.cff`](CITATION.cff).
+The repository mixes material under different licenses. The MIT license at the repository root
+does not cover third party data or benchmark files, which keep their own terms.
+
+| Component                                       | License                                                                      | Notes                                                                                                           |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Code (this repo)                                | MIT, see [`LICENSE`](LICENSE)                                                | Free to reuse, including commercially                                                                           |
+| `evaluation_examples/` (OSWorld 1.0 task files) | Apache 2.0, see [`evaluation_examples/LICENSE`](evaluation_examples/LICENSE) | Not MIT. Keep the license file and attribute [OSWorld](https://github.com/xlang-ai/OSWorld) when redistributing |
+| AgentNet data (downloaded, not committed)       | MIT per the dataset card, see [`data/README.md`](data/README.md)             | Dataset terms apply independently of this repo's code license. Cite the AgentNet paper                          |
+
+Both the Apache 2.0 and MIT licenses permit commercial reuse with attribution, so the two are
+compatible in one repository. They apply per component and are not merged into one license.
+
+Citing this project: see [`CITATION.cff`](CITATION.cff) (GitHub renders a "Cite this repository"
+button from it). Citing the underlying data: see [`data/README.md`](data/README.md).

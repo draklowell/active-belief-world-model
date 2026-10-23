@@ -11,8 +11,9 @@ with annotations and screenshots. The full dataset is about 200 GB, almost all o
 zip archives of screenshots, so this project fetches only parts of it.
 
 - Hugging Face page: <https://huggingface.co/datasets/xlangai/AgentNet>
-- License and citation: to be confirmed from the dataset card before redistributing
-  anything derived from it.
+- License: MIT, as stated on the Hugging Face dataset card (checked 2026-10-23). Raw data is
+  not committed, and the dataset's own terms apply to anything derived from it.
+- Citation: arXiv 2508.09123, listed on the dataset card.
 
 ## How to get it
 
@@ -38,5 +39,5 @@ CRC32, and writes `data/raw/agentnet/ubuntu_images_manifest.csv` with sha256 dig
 | `data/interim/`      | Intermediate forms of the raw data, currently empty              |
 | `data/processed/`    | Model-ready data, currently empty                                |
 
-Exploration of the data is in `notebooks/05_agentnet_eda.ipynb` and
-`notebooks/06_agentnet_images_eda.ipynb`.
+Exploration of the data is in `notebooks/01_agentnet_eda.ipynb` and
+`notebooks/02_agentnet_images_eda.ipynb`.
