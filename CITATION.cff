@@ -7,5 +7,9 @@ type: software
 license: MIT
 repository-code: "<https://github.com/draklowell/active-belief-world-model>"
 authors:
-  - family-names: "<Your Last Name>"
-    given-names: "<Your First Name>"
+  - family-names: "Konovalov"
+    given-names: "Luka"
+  - family-names: "Kryvyi"
+    given-names: "Andrii"
+  - family-names: "Lenyk"
+    given-names: "Nikita"
