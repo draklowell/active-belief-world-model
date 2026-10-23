@@ -214,7 +214,7 @@ def run_task(agent: Agent, env: "DesktopEnv", task: dict, settings: SettingsDict
             "domain": task["snapshot"],
             "task_id": task["id"],
             "score": env.evaluate(),
-            "steps": step + 1,
+            "steps": step,
         }
 
     finally:
