@@ -46,6 +46,16 @@ logging.basicConfig(
 4. Specific Class Nouns: Use descriptive nouns that define the entity's exact role. Avoid vague suffix crutches like `Manager`, `Handler`, or `Processor`. Instead of `DataProcessor`, use `DataNormalizer` or `MetricsAggregator`.
 5. Avoid arbitrary abbreviations, but accept domain-standard acronyms (e.g., `http`, `uuid`). While descriptive loop variables (e.g., for record in records) are strongly preferred, standard mathematical or index variables (`i`, `j`, `x`, `y`) are acceptable for simple iterations or coordinate math. Always use _ for throwaway variables in unpacks or loops. Do not use `df` acronyms for DataFrames. Use descriptive names like `user_data`, `transaction_records`, or `sensor_readings` instead.
 
+## Configuration Conventions
+
+1. Store human-edited runtime configurations as TOML in `config/`. Use JSON for project and service metadata, task manifests, runtime connection details, and generated result records. Keep tooling files in their required formats, such as `pyproject.toml`.
+2. Use `snake_case` keys. A configuration for one component stores its options at the root. A configuration composing multiple components groups their options in named tables, such as `[text_model]` and `[image_model]` for CUWM.
+3. Use `backend` to select an implementation when configurable, `model` for a served model identifier, and `model_id` for a checkpoint identifier or path. Keep backend options in the same table, using the names accepted by the implementation. Avoid wrapper tables or unused fields added only to enforce a uniform shape.
+4. Omit optional settings to use documented defaults. TOML has no `null` value. Use native TOML values for booleans, numbers, strings, and arrays.
+5. Keep secrets in environment variables or `.env`, read through `decouple`. Configuration may name a secret variable, such as `api_key_env = "OPENAI_API_KEY"`, but must not contain its value.
+6. Document required tables, supported backends, and defaults in the component's README. Keep configuration filenames, loader behavior, CLI defaults, and examples consistent.
+7. Keep world-model orchestration, domain prompts, and workflows in the world-model facade. Backend adapters send prepared requests to inference APIs, preferably OpenAI-compatible endpoints. Model loading and GPU execution belong on the inference server.
+
 ## Docstrings
 
 1. Add docstrings to all public functions, methods, and classes.
