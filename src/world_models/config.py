@@ -29,20 +29,20 @@ def build_cuwm(settings: dict[str, Any]) -> CUWM:
         settings: Mapping of backend names and constructor options from load_cuwm_config.
 
     Returns:
-        CUWM with an OpenAI-compatible textual client and a remote Mage image client.
+        CUWM with separate OpenAI-compatible text and stable-diffusion.cpp image clients.
     """
-    from world_models.backends.mage_flow import MageFlowImageModel
-    from world_models.backends.qwen_text import QwenTextModel
+    from world_models.backends.openai_text import OpenAITextModel
+    from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
 
     text_settings = settings["text_model"].copy()
     image_settings = settings["image_model"].copy()
     text_backend = text_settings.pop("backend", None)
     image_backend = image_settings.pop("backend", None)
-    if text_backend != "openai_compatible_vlm":
+    if text_backend != "openai_compatible_text":
         raise ValueError(f"Unsupported CUWM textual backend: {text_backend!r}.")
-    if image_backend != "mage_flow":
+    if image_backend != "stable_diffusion_image":
         raise ValueError(f"Unsupported CUWM visual backend: {image_backend!r}.")
     return CUWM(
-        text_model=QwenTextModel(**text_settings),
-        image_model=MageFlowImageModel(**image_settings),
+        text_model=OpenAITextModel(**text_settings),
+        image_model=StableDiffusionImageModel(**image_settings),
     )

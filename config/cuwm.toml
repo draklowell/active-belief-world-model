@@ -1,5 +1,5 @@
 [text_model]
-backend = "openai_compatible_vlm"
+backend = "openai_compatible_text"
 model = "qwen3-vl"
 max_tokens = 512
 temperature = 0.0
@@ -7,10 +7,11 @@ api_key_env = "OPENAI_API_KEY"
 timeout = 120.0
 
 [image_model]
-backend = "mage_flow"
+backend = "stable_diffusion_image"
 model = "microsoft/Mage-Flow-Edit-Turbo"
 steps = 4
 cfg = 1.0
 seed = 2026
+padding_multiple = 16
 api_key_env = "IMAGE_API_KEY"
 timeout = 300.0

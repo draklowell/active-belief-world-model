@@ -12,7 +12,7 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
-class QwenTextModel:
+class OpenAITextModel:
     """OpenAI-compatible VLM client for caller-provided multimodal prompts.
 
     Args:
@@ -26,7 +26,7 @@ class QwenTextModel:
 
     def __init__(
         self,
-        model: str = "qwen3-vl",
+        model: str,
         max_tokens: int = 512,
         temperature: float = 0.0,
         base_url: str | None = None,

@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 from io import BytesIO
 from ssl import SSLError
@@ -11,15 +12,16 @@ from PIL import Image, ImageOps
 logger = logging.getLogger(__name__)
 
 
-class MageFlowImageModel:
-    """Remote Mage client using an OpenAI-compatible image-editing endpoint.
+class StableDiffusionImageModel:
+    """stable-diffusion.cpp image-editing client using its OpenAI-compatible endpoint.
 
     Args:
         model: Model identifier exposed by the image-editing server.
-        steps: Number of denoising steps, normally four for Turbo or thirty for Base.
-        cfg: Classifier-free guidance scale, normally one for Turbo or five for Base.
         max_size: Optional longest-side cap; omit to retain the source resolution.
-        seed: Reproducible generation seed.
+        padding_multiple: Positive alignment divisor, defaulting to no padding.
+        steps: Optional sampling-step override; omit to use the server's default.
+        cfg: Optional guidance override applied to both text and image CFG.
+        seed: Optional sampling seed; omit to use the server's default.
         base_url: Image endpoint URL, or IMAGE_BASE_URL from decouple when omitted.
         api_key_env: Environment variable containing the image endpoint API key.
         timeout: Request timeout in seconds.
@@ -27,25 +29,25 @@ class MageFlowImageModel:
 
     def __init__(
         self,
-        model: str = "microsoft/Mage-Flow-Edit-Turbo",
-        steps: int = 4,
-        cfg: float = 1.0,
+        model: str,
         max_size: int | None = None,
-        seed: int = 2026,
+        padding_multiple: int = 1,
+        steps: int | None = None,
+        cfg: float | None = None,
+        seed: int | None = None,
         base_url: str | None = None,
         api_key_env: str = "IMAGE_API_KEY",
         timeout: float = 300.0,
     ) -> None:
-        if steps < 1:
-            raise ValueError("Mage steps must be positive.")
-        if max_size is not None and max_size < 16:
-            raise ValueError("Mage max_size must be at least 16 pixels when configured.")
-        if seed < 0:
-            raise ValueError("Mage seed must be nonnegative for reproducible inference.")
+        if max_size is not None and max_size < 1:
+            raise ValueError("Image max_size must be positive when configured.")
+        if padding_multiple < 1:
+            raise ValueError("Image padding_multiple must be positive.")
         self.model = model
+        self.max_size = max_size
+        self.padding_multiple = padding_multiple
         self.steps = steps
         self.cfg = cfg
-        self.max_size = max_size
         self.seed = seed
         self.client = OpenAI(
             base_url=base_url if base_url is not None else config("IMAGE_BASE_URL"),
@@ -62,9 +64,9 @@ class MageFlowImageModel:
     def generate(self, screenshot: bytes, prompt: str) -> bytes:
         """Render a transition and return PNG bytes, removing only alignment padding.
 
-        Cap the image size when configured, pad it to Mage's alignment, and submit
-        the prepared image and prompt to the remote API. Validate the returned size
-        before removing only the added padding.
+        Apply configured resizing and padding, then submit the prepared image and
+        prompt to the remote API. Validate the returned size before removing only
+        the added padding.
 
         Args:
             screenshot: Encoded image of the current GUI state.
@@ -78,15 +80,28 @@ class MageFlowImageModel:
         if self.max_size is not None and max(image.size) > self.max_size:
             original_size = image.size
             image.thumbnail((self.max_size, self.max_size), Image.Resampling.LANCZOS)
-            logger.warning("Downscaling Mage input from %s to %s", original_size, image.size)
+            logger.warning("Downscaling image input from %s to %s", original_size, image.size)
         width, height = image.size
-        padded_width = (width + 15) // 16 * 16
-        padded_height = (height + 15) // 16 * 16
+        alignment = self.padding_multiple
+        padded_width = (width + alignment - 1) // alignment * alignment
+        padded_height = (height + alignment - 1) // alignment * alignment
         image = ImageOps.expand(
             image, border=(0, 0, padded_width - width, padded_height - height), fill="white"
         )
         image_buffer = BytesIO()
         image.save(image_buffer, format="PNG")
+        sample_params: dict[str, object] = {}
+        if self.steps is not None:
+            sample_params["sample_steps"] = self.steps
+        if self.cfg is not None:
+            sample_params["guidance"] = {"txt_cfg": self.cfg, "img_cfg": self.cfg}
+        extra_params: dict[str, object] = {}
+        if sample_params:
+            extra_params["sample_params"] = sample_params
+        if self.seed is not None:
+            extra_params["seed"] = self.seed
+        if extra_params:
+            prompt += f"<sd_cpp_extra_args>{json.dumps(extra_params)}</sd_cpp_extra_args>"
         logger.info("Requesting image edit from %s", self.model)
         response = self.client.images.edit(
             model=self.model,
@@ -96,14 +111,12 @@ class MageFlowImageModel:
             n=1,
             response_format="b64_json",
             output_format="png",
-            extra_body={
-                "num_inference_steps": self.steps,
-                "guidance_scale": self.cfg,
-                "seed": self.seed,
-            },
         )
         if not response.data or not response.data[0].b64_json:
-            raise ValueError("The image inference endpoint returned no usable image.")
+            raise ValueError(
+                "The image inference endpoint returned no usable image; "
+                "expected inline data[0].b64_json."
+            )
         image_bytes = base64.b64decode(response.data[0].b64_json, validate=True)
         buffer = BytesIO()
         with Image.open(BytesIO(image_bytes)) as prediction:
