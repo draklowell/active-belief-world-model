@@ -7,11 +7,10 @@ after the fact.
 ## Branches
 
 - `main` is always in a working state — anyone should be able to clone it and run
-  `make reproduce` successfully at any point in time.
+  `make setup` successfully at any point in time.
 - All work happens on a branch: `feat/<short-name>` for new functionality,
   `fix/<short-name>` for bug fixes, `exp/<short-name>` for experiments that might not
-  pan out. No direct pushes to `main` (see `docs/branch-protection.md` to enforce this
-  on GitHub, not just by agreement).
+  pan out. No direct pushes to `main`.
 
 ## Pull requests
 
@@ -30,12 +29,12 @@ the body is where you write down the reasoning that isn't visible from the code
 itself (why this approach, what you ruled out, what tradeoff you made).
 
 For `exp:` commits specifically, put the result in the body — that's what turns the
-git log into a second, lightweight experiment record alongside `results/experiments.md`:
+git log into a second, lightweight experiment record:
 
 ```
 exp: try RandomForest with 200 trees
 
-macro-F1 0.94 -> 0.96, CV std 0.02. Details: results/experiments.md
+macro-F1 0.94 -> 0.96, CV std 0.02.
 ```
 
 ### Before / after
