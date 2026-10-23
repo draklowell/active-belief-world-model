@@ -513,7 +513,7 @@ class Qwen3VLAgent(Agent):
 
         pyautogui_code: list[str] = []
         for tool_call_tag in soup.find_all("tool_call"):
-            raw = tool_call_tag.get_text(strip=True)
+            raw = tool_call_tag.decode_contents().strip()
             try:
                 tool_call = json.loads(raw)
                 if tool_call.get("name") == "computer_use":

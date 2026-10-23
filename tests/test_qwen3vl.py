@@ -156,6 +156,17 @@ class TestQwen3VLAgent:
         assert len(actions) == 1
         assert "doubleClick" in actions[0]
 
+    def test_parse_response_preserves_html_in_json(self, agent: Qwen3VLAgent) -> None:
+        response = (
+            "Action: Inspect the content\n"
+            "<tool_call>\n"
+            '{"name": "computer_use", "arguments": {"action": "type", "text": "<a></a>"}}\n'
+            "</tool_call>"
+        )
+        instruction, actions = agent.parse_response(response, 1920, 1080, 1280, 720)
+        assert instruction == "Action: Inspect the content"
+        assert actions == ["pyautogui.typewrite('<a></a>', interval=0.03)"]
+
     def test_predict_flow(self, agent: Qwen3VLAgent) -> None:
         image = Image.new("RGB", (1000, 1000), color="white")
         from io import BytesIO
