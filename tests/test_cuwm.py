@@ -7,6 +7,7 @@ from email import policy
 from email.parser import BytesParser
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import Mock
 
 import httpx2
 import openai
@@ -17,6 +18,14 @@ from scripts import run_cuwm
 from world_models import CUWM, CUWMPrediction
 from world_models.backends.openai_text import OpenAITextModel
 from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
+
+CANDIDATE_ACTION = (
+    '{"function": "click", "args": ' '{"control_label": 15, "coordinate": null, "button": "left"}}'
+)
+GUI_DESCRIPTION = (
+    "Click the UI control identified by accessibility control_label 15 "
+    "using the left mouse button."
+)
 
 
 def encode_png(size: tuple[int, int], color: str) -> bytes:
@@ -50,14 +59,26 @@ def test_predict_passes_original_screenshot_through_both_stages() -> None:
 
     cuwm = CUWM(text_model=TextModel(), image_model=ImageModel())
 
-    prediction = cuwm.predict(screenshot=b"original screenshot", action="Select column H")
+    prediction = cuwm.predict(
+        screenshot=b"original screenshot",
+        action=CANDIDATE_ACTION,
+        app_name="Microsoft Excel",
+        gui_description=GUI_DESCRIPTION,
+    )
 
     assert [call[0] for call in calls] == ["text", "image"]
     assert [call[1] for call in calls] == [b"original screenshot", b"original screenshot"]
-    assert "Select column H" in calls[0][2]
-    assert system_prompts[0]
-    assert "Column H would become selected." in calls[1][2]
-    assert "Preserve" in calls[1][2]
+    assert CANDIDATE_ACTION in calls[0][2]
+    assert GUI_DESCRIPTION in calls[0][2]
+    assert "Microsoft Excel" in calls[0][2]
+    assert calls[0][2].startswith("Your task is to predict and describe")
+    assert "Dropdown / Popout" in calls[0][2]
+    assert system_prompts == [""]
+    assert calls[1][2] == (
+        "Column H would become selected.\n\n"
+        "Preserve the layout, text, icons, colors, and all other GUI elements "
+        "unrelated to this transition."
+    )
     assert isinstance(prediction, CUWMPrediction)
     assert prediction.text_description == "Column H would become selected."
     assert prediction.predicted_screenshot == b"predicted screenshot"
@@ -415,7 +436,19 @@ def test_cli_uses_the_configured_mage_request_and_preserves_text_only(
             assert request.headers["authorization"] == "Bearer text-key"
             body = json.loads(request.read())
             assert body["model"] == "qwen3-vl"
-            assert "Select column H" in body["messages"][1]["content"][1]["text"]
+            assert body["messages"][0] == {"role": "system", "content": ""}
+            prompt = body["messages"][1]["content"][1]["text"]
+            assert CANDIDATE_ACTION in prompt
+            assert GUI_DESCRIPTION in prompt
+            assert "Microsoft Excel" in prompt
+            assert prompt.count("Your task is to predict and describe") == 1
+            assert (
+                "Current UI Screenshot:\n[Current UI screenshot attached as image content]"
+                in prompt
+            )
+            image_url = body["messages"][1]["content"][0]["image_url"]["url"]
+            assert image_url.startswith("data:image/png;base64,")
+            assert base64.b64decode(image_url.split(",", 1)[1]) == screenshot
             return httpx2.Response(
                 200,
                 request=request,
@@ -485,7 +518,11 @@ def test_cli_uses_the_configured_mage_request_and_preserves_text_only(
         "--screenshot",
         str(screenshot_path),
         "--action",
-        "Select column H",
+        CANDIDATE_ACTION,
+        "--app-name",
+        "Microsoft Excel",
+        "--gui-description",
+        GUI_DESCRIPTION,
         "--config",
         "config/cuwm.toml",
         "--output-dir",
@@ -550,3 +587,37 @@ def test_image_model_rejects_nonpositive_geometry(
         StableDiffusionImageModel(
             model="image-model", max_size=max_size, padding_multiple=padding_multiple
         )
+
+
+@pytest.mark.parametrize("missing_option", ["--app-name", "--gui-description"])
+def test_cli_requires_the_paper_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], missing_option: str
+) -> None:
+    """Explain missing paper inputs before loading files or constructing model clients."""
+    arguments = {
+        "--screenshot": "missing.png",
+        "--action": CANDIDATE_ACTION,
+        "--app-name": "Microsoft Excel",
+        "--gui-description": GUI_DESCRIPTION,
+        "--output-dir": "unused-output",
+    }
+    arguments.pop(missing_option)
+    monkeypatch.setattr(
+        sys, "argv", ["run_cuwm.py", *(value for pair in arguments.items() for value in pair)]
+    )
+    with pytest.raises(SystemExit) as error:
+        run_cuwm.main()
+    assert error.value.code == 2
+    assert missing_option in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("method_name", ["generate_text_desc", "predict"])
+@pytest.mark.parametrize("missing_argument", ["app_name", "gui_description"])
+def test_facade_requires_explicit_paper_context(method_name: str, missing_argument: str) -> None:
+    """Reject omitted context through both public textual inference entry points."""
+    cuwm = CUWM(text_model=Mock(), image_model=Mock())
+    context = {"app_name": "Microsoft Excel", "gui_description": GUI_DESCRIPTION}
+    context.pop(missing_argument)
+    method = getattr(cuwm, method_name)
+    with pytest.raises(TypeError, match=missing_argument):
+        method(b"original screenshot", CANDIDATE_ACTION, **context)
