@@ -141,6 +141,23 @@ uv run jupyter lab notebooks/
 > [!note] Why this matters: CI enforces it instead of "we agreed to"
 > "The team agreed to run black before committing" survives about one deadline-week skip before someone's code silently stops matching. A red `lint` check in CI is unambiguous, and — importantly — **a red CI check blocks merging**: reviewing a PR you can't tell has passed its own tests is a bad use of a reviewer's time, so don't merge over red CI, fix it first.
 
+## Reproducibility
+
+Perfect reproducibility is not possible in this project. OSWorld tasks run in a virtual
+machine with live applications, and even a controlled environment has small sources of
+randomness such as timing, rendering, network access, and application state. Two runs of the
+same task can therefore diverge even when every model input is identical.
+
+We reduce the remaining variation where we control it:
+
+- Diffusion models use fixed seeds, for example `seed = 2026` in `config/cuwm.toml`.
+- VLMs run with deterministic decoding (`temperature = 0.0`) or a fixed seed, as set in
+  `config/`.
+- Dependency versions are pinned in `pyproject.toml` and `uv.lock`.
+
+Seeded sampling is repeatable only within a fixed inference server runtime and hardware. Treat
+a single run as one sample, and compare results over repeated runs rather than one number.
+
 ## License and citation
 
 The repository mixes material under different licenses. The MIT license at the repository root
