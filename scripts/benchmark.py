@@ -391,13 +391,12 @@ def main() -> None:
     )
 
     if settings["mlflow_enabled"]:
-        experiment_id = mlflow.create_experiment(
-            tags={"agent": args.agent_path}, name=experiment_name
-        )
-
+        tags = {"agent": args.agent_path}
         for tag in args.experiment_tags:
             key, value = tag.split("=", 1)
-            mlflow.set_experiment_tag(key, value)
+            tags[key] = value
+
+        experiment_id = mlflow.create_experiment(tags=tags, name=experiment_name)
     else:
         experiment_id = ""
 
