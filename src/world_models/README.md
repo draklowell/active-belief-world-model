@@ -4,8 +4,9 @@ CUWM predicts one hypothetical GUI transition without executing the candidate ac
 It reproduces the two-stage factorization in
 [Guan et al., section 3.1 and Figure 2](https://arxiv.org/abs/2602.17365):
 
-1. CUWM prepares system and action prompts, then calls the textual backend to
-   predict the immediate UI changes.
+1. CUWM renders the complete Appendix A.5.2 prompt using the supplied application
+   and structured action context, then calls the textual backend to predict the
+   immediate UI changes.
 2. CUWM prepares an edit instruction with preservation requirements, then calls the
    visual backend using the original screenshot.
 
@@ -13,7 +14,10 @@ Both stages receive encoded screenshot `bytes`. The textual result is a plain
 string, and the visual result is PNG-encoded `bytes`. `CUWM.predict` returns a
 `CUWMPrediction` containing `text_description` and `predicted_screenshot`.
 
-`cuwm.py` owns orchestration and domain prompts. `base.py` defines the backend
+`cuwm.py` owns orchestration and invokes the paper-prompt renderer. The complete
+original prompt sources live in [`prompts/cuwm/paper/`](prompts/cuwm/paper/), with
+provenance and preserved quirks in the [prompt README](prompts/cuwm/README.md).
+`base.py` defines the backend
 protocols, and `types.py` defines the prediction dataclass. Importing `world_models`
 uses only the standard library. Clients in `backends/` encode requests and call
 remote inference APIs. Model loading and GPU execution run on servers.
@@ -27,21 +31,52 @@ from world_models.config import build_cuwm, load_cuwm_config
 
 cuwm = build_cuwm(load_cuwm_config("config/cuwm.toml"))
 screenshot = Path("data/example.png").read_bytes()
-prediction = cuwm.predict(screenshot=screenshot, action="Select column H")
+action = (
+    '{"function": "click", "args": '
+    '{"control_label": 15, "coordinate": null, "button": "left"}}'
+)
+gui_description = (
+    "Click the UI control identified by accessibility control_label 15 "
+    "using the left mouse button."
+)
+prediction = cuwm.predict(
+    screenshot=screenshot,
+    action=action,
+    app_name="Microsoft Excel",
+    gui_description=gui_description,
+)
 Path("predicted_next_state.png").write_bytes(prediction.predicted_screenshot)
 ```
 
-Use `cuwm.generate_text_desc(screenshot, action)` or
+Use `cuwm.generate_text_desc(screenshot, action, app_name=..., gui_description=...)` or
 `cuwm.generate_image(screenshot, text_description)` to run stages independently.
+`generate_text_desc` and `predict` require both context values as keyword
+arguments. This intentionally replaces the previous two-input API because the
+original research prompt requires an application name and a function-level
+description of the candidate action and its arguments. A GUI description is not
+a screenshot caption. Keep the complete structured action representation,
+including targeting arguments. Missing keywords or blank textual inputs fail;
+CUWM does not infer an application or fabricate missing context.
+
 For dependency injection, construct `CUWM(text_model=..., image_model=...)` with
 objects implementing these contracts:
 
 - `TextTransitionModel.generate(screenshot, prompt, *, system_prompt) -> str`
 - `ImageTransitionModel.generate(screenshot, prompt) -> bytes`
 
-CUWM supplies domain instructions. Backends forward the prepared prompts to
-inference endpoints without adding GUI instructions or executing actions. The
-image adapter appends stable-diffusion.cpp sampling controls to the request prompt.
+The canonical paper template is distinct from the runtime-substituted prompt.
+The runtime renderer supplies textual variables and an image-attachment marker;
+the actual screenshot is attached using the backend's existing multimodal image
+content. The complete prompt appears once in user text, with an empty system
+message. This explicit message-role choice is an implementation arrangement,
+not a claim that the paper prescribes OpenAI message roles.
+
+Backends forward prepared requests without adding GUI instructions or executing
+actions. The image adapter appends stable-diffusion.cpp sampling controls to the
+request prompt as server metadata. The image stage's existing preservation
+instruction is custom project text, separate from the four canonical paper prompts.
+The three agent-evaluation
+and judge prompts are stored and loadable without an execution pipeline.
 
 ## Configuration
 
@@ -164,14 +199,18 @@ From the repository root with the inference endpoints configured:
 ```bash
 uv run python scripts/run_cuwm.py \
   --screenshot data/example.png \
-  --action "Select column H" \
+  --action '{"function":"click","args":{"control_label":15,"coordinate":null,"button":"left"}}' \
+  --app-name "Microsoft Excel" \
+  --gui-description "Click accessibility control_label 15 using the left mouse button." \
   --config config/cuwm.toml \
   --output-dir .artifacts/cuwm/inference
 ```
 
 Supply an existing screenshot. The script writes `transition.txt` before visual
 inference, followed by `predicted_next_state.png`. Add `--text-only` to produce
-only the description. Use a fresh output directory for each run to distinguish
+only the description. `--app-name` and `--gui-description` are required in both
+modes because both perform textual transition generation. Use a fresh output
+directory for each run to distinguish
 new predictions from earlier outputs. For source-tree development without an
 active editable installation, prefix commands with `PYTHONPATH=src`.
 
@@ -194,16 +233,18 @@ downscaled dimensions.
 This is an architectural reproduction using configurable pretrained backbones.
 The paper uses trained Qwen2.5-VL and Qwen-Image-Edit-2509 with SFT and RL. This
 implementation does not reproduce its weights, training, or benchmark results.
-Prompts accept raw action strings without the paper's Office-specific structured
-action context. Models may alter unrelated UI details; alignment does not prevent
-those errors. The supplied Mage `seed = 2026` requests reproducible
+The full Office-oriented paper prompt now receives explicit application and
+function-level context, but actions remain caller-supplied strings without an
+action parser or generated accessibility annotations. Models may alter unrelated
+UI details; alignment does not prevent those errors. The supplied Mage
+`seed = 2026` requests reproducible
 sampling within a fixed server runtime, subject to that server's implementation
 and hardware.
 
 ## Minimal verification
 
 ```bash
-PYTHONPATH=src uv run --locked --no-sync pytest tests/test_cuwm.py
+PYTHONPATH=src uv run --locked --no-sync pytest tests/test_cuwm.py tests/test_cuwm_prompts.py
 uv run --locked --no-sync isort --check-only src/world_models scripts/run_cuwm.py tests/test_cuwm.py
 uv run --locked --no-sync black --check src/world_models scripts/run_cuwm.py tests/test_cuwm.py
 uv run --locked --no-sync flake8 src/world_models scripts/run_cuwm.py tests/test_cuwm.py
@@ -219,3 +260,7 @@ controls. HTTP responses are
 simulated at the transport boundary. They do not validate OSWorld evaluators,
 dependency builds, a deployed image service, or model quality. No checkpoint
 download, benchmark run, or GPU inference is required.
+
+Prompt tests additionally verify source-derived fingerprints of all four complete
+listings, structured examples, judge dimensions, safe substitution, required
+context, and package-resource loading outside the repository directory.
