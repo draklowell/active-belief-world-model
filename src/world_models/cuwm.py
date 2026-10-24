@@ -1,3 +1,4 @@
+from prompts import render
 from world_models.base import ImageTransitionModel, TextTransitionModel
 from world_models.types import CUWMPrediction
 
@@ -34,8 +35,6 @@ class CUWM:
         Returns:
             Natural-language description of the expected UI transition.
         """
-        from prompts import render
-
         context = {"action": action, "app_name": app_name, "gui_description": gui_description}
         for name, value in context.items():
             if not isinstance(value, str) or not value.strip():
@@ -55,8 +54,6 @@ class CUWM:
         Returns:
             PNG-encoded image of the predicted next GUI state.
         """
-        from prompts import render
-
         prompt = render("cuwm/image_preservation.j2", text_description=text_description)
         return self._image_model.generate(screenshot, prompt)
 

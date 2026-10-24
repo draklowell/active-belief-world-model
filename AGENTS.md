@@ -38,6 +38,8 @@ logging.basicConfig(
 )
 ```
 
+13. Keep imports at module scope. Use imports inside functions, methods, or other local scopes only for optional functionality that requires optional dependencies.
+
 ## Naming Conventions
 
 1. Use snake_case for variables, functions, and methods. Use PascalCase for classes. Use UPPER_SNAKE_CASE for constants. Prefix internal/private attributes and methods with a single underscore (e.g., \_internal_state).

@@ -17,7 +17,7 @@ string, and the visual result is PNG-encoded `bytes`. `CUWM.predict` returns a
 `cuwm.py` owns orchestration and invokes the paper-prompt renderer. The complete
 prompt templates live in [`../prompts/templates/cuwm/`](../prompts/templates/cuwm/).
 `base.py` defines the backend protocols, and `types.py` defines the prediction dataclass.
-Importing `world_models` uses only the standard library. Clients in `backends/`
+Importing `world_models` loads the shared Jinja2 prompt renderer. Clients in `backends/`
 encode requests and call remote inference APIs. Model loading and GPU execution
 run on servers.
 

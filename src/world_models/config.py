@@ -2,6 +2,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from world_models.backends.openai_text import OpenAITextModel
+from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
 from world_models.cuwm import CUWM
 
 
@@ -31,9 +33,6 @@ def build_cuwm(settings: dict[str, Any]) -> CUWM:
     Returns:
         CUWM with separate OpenAI-compatible text and stable-diffusion.cpp image clients.
     """
-    from world_models.backends.openai_text import OpenAITextModel
-    from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
-
     text_settings = settings["text_model"].copy()
     image_settings = settings["image_model"].copy()
     text_backend = text_settings.pop("backend", None)

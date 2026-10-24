@@ -11,18 +11,16 @@ from concurrent.futures import ProcessPoolExecutor
 from importlib import import_module
 from multiprocessing import get_context
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TypedDict, cast
 
 import mlflow
 import polars as pl
 from decouple import config
+from desktop_env.desktop_env import DesktopEnv
 from mlflow.entities import SpanType
 from mlflow.tracing.attachments import Attachment
 
 from agents.base import Agent
-
-if TYPE_CHECKING:
-    from desktop_env.desktop_env import DesktopEnv
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +141,7 @@ def load_agent_class(agent_path: str) -> type[Agent]:
     return agent_class
 
 
-def run_task(agent: Agent, env: "DesktopEnv", task: dict, settings: SettingsDict) -> TaskResultDict:
+def run_task(agent: Agent, env: DesktopEnv, task: dict, settings: SettingsDict) -> TaskResultDict:
     """Run one task and save its trajectory, screenshots, recording, and score.
 
     Args:
@@ -247,8 +245,6 @@ def run_tasks(
     Returns:
         One score per task, including zero for tasks that failed with an exception.
     """
-    from desktop_env.desktop_env import DesktopEnv
-
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
