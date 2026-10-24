@@ -15,12 +15,11 @@ string, and the visual result is PNG-encoded `bytes`. `CUWM.predict` returns a
 `CUWMPrediction` containing `text_description` and `predicted_screenshot`.
 
 `cuwm.py` owns orchestration and invokes the paper-prompt renderer. The complete
-original prompt sources live in [`prompts/cuwm/paper/`](prompts/cuwm/paper/), with
-provenance and preserved quirks in the [prompt README](prompts/cuwm/README.md).
-`base.py` defines the backend
-protocols, and `types.py` defines the prediction dataclass. Importing `world_models`
-uses only the standard library. Clients in `backends/` encode requests and call
-remote inference APIs. Model loading and GPU execution run on servers.
+original prompt sources live in [`prompts/cuwm/paper/`](prompts/cuwm/paper/).
+`base.py` defines the backend protocols, and `types.py` defines the prediction dataclass.
+Importing `world_models` uses only the standard library. Clients in `backends/`
+encode requests and call remote inference APIs. Model loading and GPU execution
+run on servers.
 
 ## Python API
 
