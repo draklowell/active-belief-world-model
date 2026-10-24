@@ -1,10 +1,5 @@
 # Recording a demo GIF for README.md
 
-The root README has a spot for a demo GIF/screenshot of the Streamlit app, right after
-the title. A short recording is worth more than a paragraph of description — a reader
-can tell what your project does in about five seconds instead of reading through the
-whole README first.
-
 ## Quick option: a static screenshot
 
 Run `uv run streamlit run app/streamlit_app.py`, open it in a browser, take a screenshot, save it as

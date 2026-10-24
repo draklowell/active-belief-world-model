@@ -81,6 +81,5 @@ macro-F1 0.94 -> 0.96, CV std 0.02.
 
 ## Access
 
-Add your instructor(s) and mentor as repo collaborators early (see the root README's
-setup checklist) — reviews and issue assignments don't work for people who aren't
-collaborators on the repo yet.
+Add your instructor(s) and mentor as repo collaborators early. Reviews and issue
+assignments don't work for people who aren't collaborators on the repo yet.
