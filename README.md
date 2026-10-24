@@ -1,6 +1,6 @@
 # Active Belief World Models for Computer-Use Agents (ABWM)
 
-![lint](https://github.com/draklowell/active-belief-world-model/actions/workflows/lint.yml/badge.svg)
+![CI](https://github.com/draklowell/active-belief-world-model/actions/workflows/lint.yml/badge.svg)
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 
 Research project on active belief world models for computer-use agents, evaluated on
@@ -32,7 +32,7 @@ These commands install build tools and image libraries for native dependency bui
 
 ### Ubuntu
 
-The following commands are for Ubuntu, which is also used by the lint workflow:
+The following commands are for Ubuntu, which is also used by the CI workflow:
 
 ```bash
 sudo apt-get update
@@ -107,6 +107,10 @@ uv run jupyter lab notebooks/          # open notebooks with the project kernel
 Pre-commit hooks (installed by `make setup`) catch most of this before you even open a PR — see `.pre-commit-config.yaml`.
 
 The ty hook checks all first-party Python code on every commit using the project's uv environment. Run `uv sync --locked` after dependency changes; the hook uses `--locked --no-sync` so it does not install dependencies or update `uv.lock`. CI also runs `uv run ty check`.
+
+GitHub Actions runs `lint` first, then the full pytest suite in a separate `tests`
+job. The suite includes the experimental-design tests configured in `pyproject.toml`.
+Tests run in CI and are not part of pre-commit hooks.
 
 ### Research notebooks
 
