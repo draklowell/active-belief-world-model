@@ -174,7 +174,7 @@ Changes to the action selection prompt:
 
 ## Configuration
 
-[`config/agent-qwen3vl-cuwm.json`](../../../config/agent-qwen3vl-cuwm.json)
+[`config/agent-qwen3vl-cuwm.toml`](../../../config/agent-qwen3vl-cuwm.toml)
 contains the agent options. Omitted keys use the defaults below.
 
 | Key               | Default              | Meaning                                                          |
@@ -196,7 +196,7 @@ Run the benchmark from the repository root:
 ```bash
 uv run python scripts/benchmark.py \
   --agent-path agents.qwen3vl_cuwm.Qwen3VLCUWMAgent \
-  --agent-config config/agent-qwen3vl-cuwm.json \
+  --agent-config config/agent-qwen3vl-cuwm.toml \
   --tasks evaluation_examples/test_small.json
 ```
 
