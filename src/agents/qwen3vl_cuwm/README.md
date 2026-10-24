@@ -10,9 +10,9 @@ top of the action space of the Qwen3-VL agent in [`qwen3vl.py`](../qwen3vl.py).
 The agent does not inherit from `Qwen3VLAgent` or `CUWM`. It owns its policy
 client and history, and it holds a `CUWM` instance by composition. Functions
 used by both Qwen3-VL agents live in [`qwen3vl_common.py`](../qwen3vl_common.py):
-screenshot resizing and encoding, the `computer_use` tool definition, chat
-completion requests with retries, and the conversion of tool calls into
-PyAutoGUI commands. `Qwen3VLAgent` keeps its behavior and now uses the same
+screenshot resizing and encoding, the `computer_use` tool definition rendered
+from the `qwen3vl` templates, chat completion requests with retries, and the
+conversion of tool calls into PyAutoGUI commands. `Qwen3VLAgent` keeps its behavior and now uses the same
 functions.
 
 ## Notation
@@ -39,25 +39,27 @@ Each call to `predict` performs one step:
 2. Generate candidates
    `{a_i(t)} for i = 1..N ~ P({a} | s(t), {a(k), s(k)} for t - K <= k < t, g, A)`
    with the adapted
-   [action option generation prompt](action_option_generation.md) as the
-   system prompt. The prompt contains `g`, the `computer_use` tool definition
-   with its screen resolution, and `N`. The user message contains the `K` most
-   recent screenshots, each followed by its executed action, and then `s(t)`.
-   When `K = 0`, the history-free prompt variant is used and the user message
-   contains only `s(t)`. The policy answers with one JSON array whose elements
+   [action option generation prompt](../../prompts/templates/cuwm-qwen3vl/action_option_generation.j2)
+   as the system prompt. The prompt contains `g`, the `computer_use` tool
+   definition with its screen resolution, and `N`. The user message contains the
+   `K` most recent screenshots, each followed by its executed action, and then
+   `s(t)`. When `K = 0`, the prompt is rendered without its history input and
+   the user message contains only `s(t)`. The policy answers with one JSON array whose elements
    contain `thoughts`, `action` (one imperative sentence), and `tool_call`
    (`{"name": "computer_use", "arguments": {...}}`). The response is validated
    before simulation (see [Validation](#validation)).
-3. For each candidate, call `CUWM.predict(s(t), action, gui_description=...)`,
-   where the action is the tool call JSON and the GUI description is the
-   candidate's `action` sentence:
+3. For each candidate, call `CUWM.predict(s(t), action, gui_description=...)`
+   without `app_name`, where the action is the tool call JSON and the GUI
+   description is the candidate's `action` sentence. CUWM uses the
+   `cuwm-qwen3vl` prompt set, which identifies the application from the
+   screenshot:
    1. `Δ_i(t) ~ P(Δ | s(t), a_i(t))` with the CUWM textual stage, served by the
       same Qwen3-VL endpoint (`OPENAI_BASE_URL`) as the policy.
    2. `s_i(t+1) ~ P(s | s(t), Δ_i(t))` with the CUWM visual stage, served by
       MageFlowEdit-Turbo on stable-diffusion.cpp (`IMAGE_BASE_URL`).
 4. Select `j ~ P(1..N | {a_i(t), s_i(t+1)} for i = 1..N, {a(k), s(k)} for t - K <= k <= t, g)`
-   with the adapted [action selection prompt](action_selection.md) as the
-   system prompt. The user message contains the same history, `s(t)`, and each
+   with the adapted [action selection prompt](../../prompts/templates/cuwm-qwen3vl/action_selection.j2)
+   as the system prompt. The user message contains the same history, `s(t)`, and each
    option as its description, its tool call, and its predicted screenshot. The
    policy answers with `{"action_idx": j, "thought": ...}`, and `j` is validated
    against the number of candidates.
@@ -85,8 +87,10 @@ Both policy responses are validated before their content is used.
    `tool_call` object whose `name` is `computer_use` and whose `arguments`
    object contains an `action` from the `computer_use` enumeration (`key`,
    `type`, `mouse_move`, `left_click`, `left_click_drag`, `right_click`,
-   `middle_click`, `double_click`, `scroll`, `wait`, or `terminate`). Elements
-   failing any check are logged and discarded. A missing `thoughts` field is replaced with an empty string.
+   `middle_click`, `double_click`, `scroll`, `wait`, or `terminate`). The
+   allowed names are read from the `action` enumeration of the rendered
+   `qwen3vl/tools.json.j2` tool definition, the same definition shown to the
+   policy. Elements failing any check are logged and discarded. A missing `thoughts` field is replaced with an empty string.
 3. The valid candidates are truncated to the first `N` in generation order.
 
 Only validated candidates are simulated by CUWM. If none remain, CUWM and the
@@ -100,32 +104,38 @@ A step without a validated candidate or selection returns no commands and
 leaves the history unchanged, so the next step observes the same screenshot, as
 the base Qwen3-VL agent does after a malformed response. Validation checks the
 tool call structure and the action name, but not the other arguments such as
-`coordinate`, `keys`, or `text`. The enumeration is the `COMPUTER_USE_ACTIONS`
-constant in `qwen3vl_common.py`, which also defines the tool signature shown to
-the policy.
+`coordinate`, `keys`, or `text`.
 
 One step costs `N + 2` chat completions and `N` image edits.
 
 ## Prompts
 
-Both prompts are adapted copies of the paper prompts stored in
-[`world_models/prompts/cuwm/paper/`](../../world_models/prompts/cuwm/paper/).
-Each has two variants. With `K > 0`, the agent uses
-[`action_option_generation.md`](action_option_generation.md) and
-[`action_selection.md`](action_selection.md), which describe the previous steps
-input. At the first step of a task that input contains `None`. With `K = 0`,
-the agent uses
-[`action_option_generation_without_history.md`](action_option_generation_without_history.md)
-and [`action_selection_without_history.md`](action_selection_without_history.md),
-and the messages contain no previous steps section. These variants remove every
-reference to previous steps and are otherwise identical to the history
-variants. Their example thoughts describe the current screenshot instead of the
-previous step, and the drag instruction asks for an earlier `mouse_move` action
-instead of a previous step. Only the history variants add the previous steps
-changes listed below.
-They are wrapped in a `text` fence so `mdformat` does not rewrite them, and
-`render_prompt` substitutes `{instruction}`, `{actions}`, and `{num_options}` in
-one pass without interpreting JSON braces or inserted text.
+All agent prompts are Jinja2 templates in
+[`src/prompts/templates/cuwm-qwen3vl/`](../../prompts/templates/cuwm-qwen3vl/), rendered with the shared
+`prompts.render` environment and `StrictUndefined`, so a missing variable fails
+instead of producing a partial prompt. The directory also holds the CUWM
+transition prompt used by this agent, described in the
+[CUWM changes report](../../world_models/cuwm/README.md).
+
+| Template                      | Role    | Context                                                            |
+| ----------------------------- | ------- | ------------------------------------------------------------------ |
+| `action_option_generation.j2` | System  | `has_history`, `instruction`, `actions` (tool JSON), `num_options` |
+| `action_selection.j2`         | System  | `has_history`, `instruction`, `num_options`                        |
+| `history_step.j2`             | User    | `step`, `action`, after each history screenshot                    |
+| `current_screenshot.j2`       | User    | none, before `s(t)`                                                |
+| `action_option.j2`            | User    | `index`, `action`, before each predicted screenshot                |
+| `action.j2`                   | History | `action` description and serialized `tool_call`                    |
+
+Message assembly, image attachments, and JSON serialization stay in Python.
+The two system prompts are adapted copies of the paper prompts in
+[`cuwm/`](../../prompts/templates/cuwm/). Each is a single template whose
+history input is enclosed in `{% if has_history %}` blocks. The agent sets
+`has_history` to `K > 0`. With `K = 0`, every reference to previous steps is
+omitted: the example thoughts describe the current screenshot instead of the
+previous step, the drag instruction asks for an earlier `mouse_move` action,
+and the messages contain no history parts. With `K > 0`, the history input is
+described and, at the first step of a task, contains no parts, which the prompt
+states explicitly ("This input is empty at the first step of a task").
 
 Changes to the action option generation prompt:
 
@@ -133,10 +143,9 @@ Changes to the action option generation prompt:
 - The annotated screenshot and accessibility inputs are removed, together with
   the instruction to prefer `control_label` over coordinates. The prompt instead
   asks for the coordinate of the element center in the stated resolution.
-- A previous steps input is added, and the reasoning checklist asks how the
-  previous steps changed the UI. The examples refer to the previous step only in
-  the history variant.
-- The `{a11y}` placeholder is removed and `{actions}` receives the
+- A previous steps input is added when `has_history` is true, and the reasoning
+  checklist asks how the previous steps changed the UI.
+- The `{a11y}` placeholder is removed and `{{ actions }}` receives the
   `computer_use` tool definition, including the environment description and the
   coordinate resolution of `qwen3vl.py`.
 - Each element has an additional `action` field with one imperative sentence.
@@ -155,10 +164,11 @@ Changes to the action selection prompt:
   the five hard-coded options are removed from the prompt. The images and the
   options are sent in the user message with the paper's labels
   (`Action Option i`, `- Action:`, `- Predicted State Image: see below.`).
-- The bound of `action_idx` is `{num_options}`, the number of parsed
+- The bound of `action_idx` is `{{ num_options }}`, the number of parsed
   candidates, instead of 5.
-- A previous steps input is added, together with a `Progress` rule that
-  discourages actions repeating an earlier action without changing the UI.
+- A previous steps input is added when `has_history` is true, together with a
+  `Progress` rule that discourages actions repeating an earlier action without
+  changing the UI.
 - The `predicted_state` references are renamed to `predicted_state_image`,
   matching the field described above them.
 
@@ -167,16 +177,16 @@ Changes to the action selection prompt:
 [`config/agent-qwen3vl-cuwm.json`](../../../config/agent-qwen3vl-cuwm.json)
 contains the agent options. Omitted keys use the defaults below.
 
-| Key               | Default              | Meaning                                                         |
-| ----------------- | -------------------- | --------------------------------------------------------------- |
-| `model`           | `"qwen3-vl"`         | Served Qwen3-VL identifier for generation and selection         |
-| `max_tokens`      | `32768`              | Maximum generated tokens per policy request                     |
-| `temperature`     | `0.0`                | Policy sampling temperature                                     |
-| `top_p`           | `0.9`                | Policy nucleus sampling mass                                    |
-| `history_n`       | `4`                  | `K`, previous screenshot and action pairs; `0` disables history |
-| `coordinate_type` | `"relative"`         | `relative` 1000x1000 grid or `absolute` processed pixels        |
-| `num_options`     | `5`                  | `N`, candidates requested per step                              |
-| `cuwm_config`     | `"config/cuwm.toml"` | CUWM TOML configuration, relative to the working directory      |
+| Key               | Default              | Meaning                                                          |
+| ----------------- | -------------------- | ---------------------------------------------------------------- |
+| `model`           | `"qwen3-vl"`         | Served Qwen3-VL identifier for generation and selection          |
+| `max_tokens`      | `32768`              | Maximum generated tokens per policy request                      |
+| `temperature`     | `0.0`                | Policy sampling temperature                                      |
+| `top_p`           | `0.9`                | Policy nucleus sampling mass                                     |
+| `history_n`       | `4`                  | `K`, previous screenshot and action pairs; `0` disables history  |
+| `coordinate_type` | `"relative"`         | `relative` 1000x1000 grid or `absolute` processed pixels         |
+| `num_options`     | `5`                  | `N`, candidates requested per step                               |
+| `cuwm_config`     | `"config/cuwm.toml"` | CUWM TOML configuration; its `prompt_set` becomes `cuwm-qwen3vl` |
 
 The policy client reads `OPENAI_BASE_URL` and `OPENAI_API_KEY`. CUWM reads the
 endpoints configured in `config/cuwm.toml`, by default `OPENAI_BASE_URL` for the

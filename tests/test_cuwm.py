@@ -12,17 +12,23 @@ from unittest.mock import Mock
 import httpx2
 import openai
 import pytest
+from jinja2 import UndefinedError
 from PIL import Image, UnidentifiedImageError
 
+from prompts import render
 from scripts import run_cuwm
 from world_models import CUWM, CUWMPrediction
 from world_models.backends.openai_text import OpenAITextModel
 from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
+from world_models.config import build_cuwm
 
 CANDIDATE_ACTION = (
-    '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [512, 64]}}'
+    '{"function": "click", "args": ' '{"control_label": 15, "coordinate": null, "button": "left"}}'
 )
-GUI_DESCRIPTION = "Click the column H header."
+GUI_DESCRIPTION = (
+    "Click the UI control identified by accessibility control_label 15 "
+    "using the left mouse button."
+)
 
 
 def encode_png(size: tuple[int, int], color: str) -> bytes:
@@ -59,6 +65,7 @@ def test_predict_passes_original_screenshot_through_both_stages() -> None:
     prediction = cuwm.predict(
         screenshot=b"original screenshot",
         action=CANDIDATE_ACTION,
+        app_name="Microsoft Excel",
         gui_description=GUI_DESCRIPTION,
     )
 
@@ -66,7 +73,7 @@ def test_predict_passes_original_screenshot_through_both_stages() -> None:
     assert [call[1] for call in calls] == [b"original screenshot", b"original screenshot"]
     assert CANDIDATE_ACTION in calls[0][2]
     assert GUI_DESCRIPTION in calls[0][2]
-    assert "World Model assistant for desktop applications" in calls[0][2]
+    assert "Microsoft Excel" in calls[0][2]
     assert calls[0][2].startswith("Your task is to predict and describe")
     assert "Dropdown / Popout" in calls[0][2]
     assert system_prompts == [""]
@@ -436,7 +443,7 @@ def test_cli_uses_the_configured_mage_request_and_preserves_text_only(
             prompt = body["messages"][1]["content"][1]["text"]
             assert CANDIDATE_ACTION in prompt
             assert GUI_DESCRIPTION in prompt
-            assert "World Model assistant for desktop applications" in prompt
+            assert "Microsoft Excel" in prompt
             assert prompt.count("Your task is to predict and describe") == 1
             assert (
                 "Current UI Screenshot:\n[Current UI screenshot attached as image content]"
@@ -515,6 +522,8 @@ def test_cli_uses_the_configured_mage_request_and_preserves_text_only(
         str(screenshot_path),
         "--action",
         CANDIDATE_ACTION,
+        "--app-name",
+        "Microsoft Excel",
         "--gui-description",
         GUI_DESCRIPTION,
         "--config",
@@ -593,6 +602,8 @@ def test_cli_requires_the_action_description(
         "missing.png",
         "--action",
         CANDIDATE_ACTION,
+        "--app-name",
+        "Microsoft Excel",
         "--output-dir",
         "unused-output",
     ]
@@ -604,9 +615,72 @@ def test_cli_requires_the_action_description(
 
 
 @pytest.mark.parametrize("method_name", ["generate_text_desc", "predict"])
-def test_facade_requires_explicit_action_description(method_name: str) -> None:
+def test_facade_requires_an_explicit_action_description(method_name: str) -> None:
     """Reject an omitted description through both public textual inference entry points."""
     cuwm = CUWM(text_model=Mock(), image_model=Mock())
     method = getattr(cuwm, method_name)
     with pytest.raises(TypeError, match="gui_description"):
-        method(b"original screenshot", CANDIDATE_ACTION)
+        method(b"original screenshot", CANDIDATE_ACTION, app_name="Microsoft Excel")
+
+
+@pytest.mark.parametrize("method_name", ["generate_text_desc", "predict"])
+def test_paper_prompts_require_an_application_name(method_name: str) -> None:
+    """Fail through the strict template instead of rendering the paper prompt without it."""
+    text_model = Mock()
+    cuwm = CUWM(text_model=text_model, image_model=Mock())
+    method = getattr(cuwm, method_name)
+    with pytest.raises(UndefinedError, match="app_name"):
+        method(b"original screenshot", CANDIDATE_ACTION, gui_description=GUI_DESCRIPTION)
+    text_model.generate.assert_not_called()
+
+
+def test_desktop_prompt_set_predicts_without_an_application_name() -> None:
+    """Render the cuwm-qwen3vl transition and image prompts when no application is supplied."""
+    text_model = Mock()
+    text_model.generate.return_value = "Chrome opens."
+    image_model = Mock()
+    image_model.generate.return_value = b"predicted screenshot"
+    cuwm = CUWM(text_model=text_model, image_model=image_model, prompt_set="cuwm-qwen3vl")
+    prediction = cuwm.predict(b"screenshot", CANDIDATE_ACTION, gui_description="Open Chrome.")
+    transition_prompt = text_model.generate.call_args.args[1]
+    assert "World Model assistant for desktop applications" in transition_prompt
+    assert "Office" not in transition_prompt
+    assert "Open Chrome." in transition_prompt
+    assert image_model.generate.call_args.args[1] == render(
+        "cuwm/image_preservation.j2", text_description="Chrome opens."
+    )
+    assert prediction == CUWMPrediction("Chrome opens.", b"predicted screenshot")
+
+
+def test_desktop_prompt_set_ignores_a_supplied_application_name() -> None:
+    """Accept an application name for callers that share code with the paper prompt set."""
+    text_model = Mock()
+    text_model.generate.return_value = "Chrome opens."
+    cuwm = CUWM(text_model=text_model, image_model=Mock(), prompt_set="cuwm-qwen3vl")
+    cuwm.generate_text_desc(
+        b"screenshot", CANDIDATE_ACTION, gui_description="Open Chrome.", app_name="LibreOffice Calc"
+    )
+    assert "LibreOffice Calc" not in text_model.generate.call_args.args[1]
+
+
+@pytest.mark.parametrize("settings, prompt_set", [({}, "cuwm"), ({"prompt_set": "x"}, "x")])
+def test_build_cuwm_selects_the_configured_prompt_set(
+    monkeypatch: pytest.MonkeyPatch, settings: dict, prompt_set: str
+) -> None:
+    """Use the paper prompts unless the configuration names another template directory."""
+    monkeypatch.setenv("CUWM_TEST_API_KEY", "test-key")
+    backends = {
+        "text_model": {
+            "backend": "openai_compatible_text",
+            "model": "text-model",
+            "base_url": "https://text.test/v1",
+            "api_key_env": "CUWM_TEST_API_KEY",
+        },
+        "image_model": {
+            "backend": "stable_diffusion_image",
+            "model": "image-model",
+            "base_url": "https://image.test/v1",
+            "api_key_env": "CUWM_TEST_API_KEY",
+        },
+    }
+    assert build_cuwm(backends | settings)._prompt_set == prompt_set

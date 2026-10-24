@@ -2,54 +2,26 @@ import base64
 import json
 import logging
 import re
-from pathlib import Path
 
 import openai
 from decouple import config
 
 from agents.base import Agent
 from agents.qwen3vl_common import (
-    COMPUTER_USE_ACTIONS,
     build_computer_use_tool,
     build_image_content,
     convert_tool_call_to_pyautogui,
+    list_computer_use_actions,
     prepare_screenshot,
     process_image,
     request_chat_completion,
 )
+from prompts import render
 from world_models.config import build_cuwm, load_cuwm_config
-from world_models.prompts import remove_presentation_fence
 
 logger = logging.getLogger(__name__)
 
-PROMPT_DIRECTORY = Path(__file__).parent / "qwen3vl_cuwm"
-
-
-def load_agent_prompt(name: str) -> str:
-    """Load an agent prompt template stored beside this module.
-
-    Args:
-        name: Either action_option_generation or action_selection, optionally followed by
-            _without_history, without an extension.
-
-    Returns:
-        Prompt template with its named placeholders intact.
-    """
-    source = (PROMPT_DIRECTORY / f"{name}.md").read_text(encoding="utf-8")
-    return remove_presentation_fence(source, name)
-
-
-def render_prompt(template: str, values: dict[str, str]) -> str:
-    """Substitute named placeholders in one pass, leaving JSON braces and inserted text intact.
-
-    Args:
-        template: Prompt template containing placeholders such as {instruction}.
-        values: Mapping from placeholder names to inserted text.
-
-    Returns:
-        Prompt text with every placeholder replaced.
-    """
-    return re.sub(r"\{([a-z_]+)\}", lambda match: values[match[1]], template)
+PROMPT_SET = "cuwm-qwen3vl"
 
 
 def format_action(candidate: dict) -> str:
@@ -61,9 +33,10 @@ def format_action(candidate: dict) -> str:
     Returns:
         Action description followed by the tool call inside <tool_call> tags.
     """
-    return (
-        f"Action: {candidate['action']}\n"
-        f"<tool_call>\n{json.dumps(candidate['tool_call'])}\n</tool_call>"
+    return render(
+        f"{PROMPT_SET}/action.j2",
+        action=candidate["action"],
+        tool_call=json.dumps(candidate["tool_call"]),
     )
 
 
@@ -79,10 +52,11 @@ class Qwen3VLCUWMAgent(Agent):
         top_p: Nucleus sampling probability mass for policy requests.
         temperature: Sampling temperature for policy requests.
         history_n: Number of previous screenshot and action pairs shown to the policy; zero
-            selects prompts without a history input.
+            renders the prompts without a history input.
         coordinate_type: Either absolute processed-image pixels or relative 1000x1000 coordinates.
         num_options: Number of candidate actions requested per step.
-        cuwm_config: Path to the CUWM TOML configuration.
+        cuwm_config: Path to the CUWM TOML configuration; its prompt_set is replaced by the
+            `cuwm-qwen3vl` templates, which do not require an application name.
         actions: Executed actions in the Qwen3-VL response format, one per completed step.
         screenshots: Base64 processed screenshots on which each executed action was taken.
 
@@ -130,10 +104,9 @@ class Qwen3VLCUWMAgent(Agent):
         self._client = openai.OpenAI(
             base_url=config("OPENAI_BASE_URL"), api_key=config("OPENAI_API_KEY")
         )
-        self._world_model = build_cuwm(load_cuwm_config(self.cuwm_config))
-        prompt_variant = "" if self.history_n > 0 else "_without_history"
-        self._generation_template = load_agent_prompt(f"action_option_generation{prompt_variant}")
-        self._selection_template = load_agent_prompt(f"action_selection{prompt_variant}")
+        self._world_model = build_cuwm(
+            load_cuwm_config(self.cuwm_config) | {"prompt_set": PROMPT_SET}
+        )
 
     def reset(self) -> None:
         """Reset task history after the environment has been reset."""
@@ -146,35 +119,30 @@ class Qwen3VLCUWMAgent(Agent):
         first_index = max(0, len(self.actions) - self.history_n)
         content: list[dict] = []
         for index in range(first_index, len(self.actions)):
-            content.append({"type": "text", "text": f"Step {index + 1} screenshot:"})
-            content.append(build_image_content(self.screenshots[index]))
-            content.append(
-                {
-                    "type": "text",
-                    "text": f"Step {index + 1} executed action:\n{self.actions[index]}",
-                }
+            step_text = render(
+                f"{PROMPT_SET}/history_step.j2", step=index + 1, action=self.actions[index]
             )
+            content.append(build_image_content(self.screenshots[index]))
+            content.append({"type": "text", "text": step_text})
+        return content
+
+    def _build_current_content(self, processed_image: str) -> list[dict]:
         return [
-            {"type": "text", "text": "Previous steps:"},
-            *(content or [{"type": "text", "text": "None"}]),
+            {"type": "text", "text": render(f"{PROMPT_SET}/current_screenshot.j2")},
+            build_image_content(processed_image),
         ]
 
     def _build_generation_messages(
         self, instruction: str, processed_image: str, computer_use_tool: dict
     ) -> list[dict]:
-        system_prompt = render_prompt(
-            self._generation_template,
-            {
-                "instruction": instruction,
-                "actions": json.dumps(computer_use_tool),
-                "num_options": str(self.num_options),
-            },
+        system_prompt = render(
+            f"{PROMPT_SET}/action_option_generation.j2",
+            has_history=self.history_n > 0,
+            instruction=instruction,
+            actions=json.dumps(computer_use_tool),
+            num_options=self.num_options,
         )
-        content = [
-            *self._build_history_content(),
-            {"type": "text", "text": "Current screenshot:"},
-            build_image_content(processed_image),
-        ]
+        content = [*self._build_history_content(), *self._build_current_content(processed_image)]
         return [
             {"role": "system", "content": [{"type": "text", "text": system_prompt}]},
             {"role": "user", "content": content},
@@ -187,23 +155,18 @@ class Qwen3VLCUWMAgent(Agent):
         candidates: list[dict],
         predicted_images: list[str],
     ) -> list[dict]:
-        system_prompt = render_prompt(
-            self._selection_template,
-            {"instruction": instruction, "num_options": str(len(candidates))},
+        system_prompt = render(
+            f"{PROMPT_SET}/action_selection.j2",
+            has_history=self.history_n > 0,
+            instruction=instruction,
+            num_options=len(candidates),
         )
-        content = [
-            *self._build_history_content(),
-            {"type": "text", "text": "The current screenshot is: See the image below."},
-            build_image_content(processed_image),
-            {"type": "text", "text": "Here are the candidate action options:"},
-        ]
+        content = [*self._build_history_content(), *self._build_current_content(processed_image)]
         for index, (candidate, predicted_image) in enumerate(
             zip(candidates, predicted_images), start=1
         ):
-            option_text = (
-                f"Action Option {index}:\n"
-                f" - Action:\n{format_action(candidate)}\n"
-                " - Predicted State Image: see below."
+            option_text = render(
+                f"{PROMPT_SET}/action_option.j2", index=index, action=format_action(candidate)
             )
             content.append({"type": "text", "text": option_text})
             content.append(build_image_content(predicted_image))
@@ -212,7 +175,7 @@ class Qwen3VLCUWMAgent(Agent):
             {"role": "user", "content": content},
         ]
 
-    def parse_candidates(self, response: str) -> list[dict]:
+    def parse_candidates(self, response: str, supported_actions: list[str]) -> list[dict]:
         """Extract valid candidate actions from the JSON array returned by the policy.
 
         Elements without a string `action` and a `computer_use` tool call whose `action`
@@ -220,6 +183,7 @@ class Qwen3VLCUWMAgent(Agent):
 
         Args:
             response: Raw completion text of the action option generation request.
+            supported_actions: Action names accepted by the `computer_use` tool definition.
 
         Returns:
             Candidates with `thoughts`, `action`, and `tool_call` keys, in generation order.
@@ -241,7 +205,7 @@ class Qwen3VLCUWMAgent(Agent):
                 isinstance(tool_call, dict)
                 and tool_call.get("name") == "computer_use"
                 and isinstance(tool_call.get("arguments"), dict)
-                and tool_call["arguments"].get("action") in COMPUTER_USE_ACTIONS
+                and tool_call["arguments"].get("action") in supported_actions
                 and isinstance(option.get("action"), str)
                 and bool(option["action"].strip())
             )
@@ -307,7 +271,9 @@ class Qwen3VLCUWMAgent(Agent):
             temperature=self.temperature,
             top_p=self.top_p,
         )
-        candidates = self.parse_candidates(generation_response)
+        candidates = self.parse_candidates(
+            generation_response, list_computer_use_actions(computer_use_tool)
+        )
         if not candidates:
             return generation_response, []
 

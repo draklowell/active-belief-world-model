@@ -13,6 +13,7 @@ from agents.qwen3vl_common import (
     prepare_screenshot,
     request_chat_completion,
 )
+from prompts import render
 
 logger = logging.getLogger(__name__)
 
@@ -57,27 +58,7 @@ class Qwen3VLAgent(Agent):
         self.screenshots = []
 
     def _build_system_prompt(self, computer_use_tool: dict) -> str:
-        return (
-            "# Tools\n\n"
-            "You may call one or more functions to assist with the user query.\n\n"
-            "You are provided with function signatures within <tools></tools> XML tags:\n"
-            f"<tools>\n{json.dumps(computer_use_tool)}\n</tools>\n\n"
-            "For each function call, return a json object with function name and arguments "
-            "within <tool_call></tool_call> XML tags:\n"
-            "<tool_call>\n"
-            '{"name": <function-name>, "arguments": <args-json-object>}\n'
-            "</tool_call>\n\n"
-            "# Response format\n\n"
-            "Response format for every step:\n"
-            "1) Action: a short imperative describing what to do in the UI.\n"
-            "2) A single <tool_call>...</tool_call> block containing only the JSON: "
-            '{"name": <function-name>, "arguments": <args-json-object>}.\n\n'
-            "Rules:\n"
-            "- Output exactly in the order: Action, <tool_call>.\n"
-            "- Be brief: one sentence for Action.\n"
-            "- Do not output anything else outside those parts.\n"
-            "- If finishing, use action=terminate in the tool call."
-        )
+        return render("qwen3vl/system.j2", tool_definition=json.dumps(computer_use_tool))
 
     def _build_messages(
         self,
@@ -86,11 +67,8 @@ class Qwen3VLAgent(Agent):
         system_prompt: str,
         previous_actions_str: str,
     ) -> list[dict]:
-        instruction_prompt = (
-            "Please generate the next move according to the UI screenshot, "
-            f"instruction and previous actions.\n\n"
-            f"Instruction: {instruction}\n\n"
-            f"Previous actions:\n{previous_actions_str}"
+        instruction_prompt = render(
+            "qwen3vl/user.j2", instruction=instruction, previous_actions_str=previous_actions_str
         )
         messages: list[dict] = [
             {"role": "system", "content": [{"type": "text", "text": system_prompt}]}
@@ -192,10 +170,11 @@ class Qwen3VLAgent(Agent):
 
         current_step = len(self.actions)
         history_start_index = max(0, current_step - self.history_n)
-        previous_actions = [
-            f"Step {i + 1}: {self.actions[i]}" for i in range(history_start_index, current_step)
-        ]
-        previous_actions_str = "\n".join(previous_actions) if previous_actions else "None"
+        previous_actions_str = render(
+            "qwen3vl/history.j2",
+            actions=self.actions[history_start_index:current_step],
+            start_step=history_start_index + 1,
+        )
 
         computer_use_tool = build_computer_use_tool(
             self.coordinate_type, processed_width, processed_height

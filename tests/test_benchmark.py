@@ -258,10 +258,8 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
     settings: benchmark.SettingsDict,
 ) -> None:
     """Reuse the VM and keep successful task results while logging task failures."""
-    desktop_module = ModuleType("desktop_env.desktop_env")
     environment_class = MagicMock(return_value=env)
-    setattr(desktop_module, "DesktopEnv", environment_class)
-    monkeypatch.setitem(sys.modules, "desktop_env.desktop_env", desktop_module)
+    monkeypatch.setattr(benchmark, "DesktopEnv", environment_class)
     aws_module = ModuleType("desktop_env.providers.aws.manager")
     setattr(aws_module, "IMAGE_ID_MAP", {"us-east-1": {(1920, 1080): "test-ami"}})
     monkeypatch.setitem(sys.modules, "desktop_env.providers.aws.manager", aws_module)

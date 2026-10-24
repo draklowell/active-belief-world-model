@@ -4,11 +4,11 @@ import pytest
 from PIL import Image
 
 from agents.qwen3vl_common import (
-    COMPUTER_USE_ACTIONS,
     build_computer_use_tool,
     ceil_by_factor,
     convert_tool_call_to_pyautogui,
     floor_by_factor,
+    list_computer_use_actions,
     prepare_screenshot,
     process_image,
     round_by_factor,
@@ -65,9 +65,19 @@ class TestComputerUseTool:
         assert "resolution is 1000x1000" in relative["function"]["description"]
         assert "resolution is 1920x1088" in absolute["function"]["description"]
         assert relative["function"]["name"] == "computer_use"
-        assert relative["function"]["parameters"]["properties"]["action"]["enum"] == list(
-            COMPUTER_USE_ACTIONS
-        )
+        assert list_computer_use_actions(relative) == [
+            "key",
+            "type",
+            "mouse_move",
+            "left_click",
+            "left_click_drag",
+            "right_click",
+            "middle_click",
+            "double_click",
+            "scroll",
+            "wait",
+            "terminate",
+        ]
 
     @pytest.mark.parametrize(
         "coordinate_type, expected",

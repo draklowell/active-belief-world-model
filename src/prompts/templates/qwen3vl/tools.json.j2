@@ -1,0 +1,62 @@
+{
+  "type": "function",
+  "function": {
+    "name_for_human": "computer_use",
+    "name": "computer_use",
+    "description": {{ description_prompt | string | tojson }},
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": {{ action_descriptions | string | tojson }},
+          "enum": [
+            "key",
+            "type",
+            "mouse_move",
+            "left_click",
+            "left_click_drag",
+            "right_click",
+            "middle_click",
+            "double_click",
+            "scroll",
+            "wait",
+            "terminate"
+          ],
+          "type": "string"
+        },
+        "keys": {
+          "description": "Required only by `action=key`.",
+          "type": "array"
+        },
+        "text": {
+          "description": "Required only by `action=type`.",
+          "type": "string"
+        },
+        "coordinate": {
+          "description": "The x,y coordinates for mouse actions.",
+          "type": "array"
+        },
+        "pixels": {
+          "description": "The amount of scrolling.",
+          "type": "number"
+        },
+        "time": {
+          "description": "The seconds to wait.",
+          "type": "number"
+        },
+        "status": {
+          "description": "The status of the task.",
+          "type": "string",
+          "enum": [
+            "success",
+            "failure"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "args_format": "Format the arguments as a JSON object."
+  }
+}

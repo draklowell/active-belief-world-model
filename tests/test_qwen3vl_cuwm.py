@@ -5,11 +5,14 @@ from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
+from jinja2 import UndefinedError
 from PIL import Image
 
 from agents import qwen3vl_cuwm
 from agents.base import Agent
-from agents.qwen3vl_cuwm import Qwen3VLCUWMAgent, load_agent_prompt, render_prompt
+from agents.qwen3vl_common import build_computer_use_tool, list_computer_use_actions
+from agents.qwen3vl_cuwm import Qwen3VLCUWMAgent
+from prompts import render
 from world_models import CUWM
 
 CANDIDATES = [
@@ -97,17 +100,32 @@ def agent(
     """Build the agent with a recording CUWM instead of remote clients."""
     text_model, image_model = world_model_backends
     loaded_paths: list[str] = []
+    built_settings: list[dict] = []
+
+    def load_settings(path: str) -> dict:
+        """Record the configuration path and return paper prompt settings."""
+        loaded_paths.append(path)
+        return {"text_model": {}, "image_model": {}, "prompt_set": "cuwm"}
+
+    def build_world_model(settings: dict) -> CUWM:
+        """Record the settings and compose recording backends with the requested prompts."""
+        built_settings.append(settings)
+        return CUWM(text_model, image_model, prompt_set=settings["prompt_set"])
+
     monkeypatch.setenv("OPENAI_BASE_URL", "https://text.test/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "text-key")
-    monkeypatch.setattr(qwen3vl_cuwm, "load_cuwm_config", lambda path: loaded_paths.append(path))
-    monkeypatch.setattr(
-        qwen3vl_cuwm,
-        "build_cuwm",
-        lambda settings: CUWM(text_model=text_model, image_model=image_model),
-    )
+    monkeypatch.setattr(qwen3vl_cuwm, "load_cuwm_config", load_settings)
+    monkeypatch.setattr(qwen3vl_cuwm, "build_cuwm", build_world_model)
     built_agent = Qwen3VLCUWMAgent(agent_config)
     assert loaded_paths == ["config/cuwm.toml"]
+    assert built_settings == [{"text_model": {}, "image_model": {}, "prompt_set": "cuwm-qwen3vl"}]
     return built_agent
+
+
+@pytest.fixture
+def supported_actions() -> list[str]:
+    """List the action names of the rendered `computer_use` tool definition."""
+    return list_computer_use_actions(build_computer_use_tool("relative", 1000, 1000))
 
 
 @pytest.fixture
@@ -127,34 +145,40 @@ def test_agent_implements_the_benchmark_protocol(agent: Qwen3VLCUWMAgent) -> Non
     assert agent.screenshots == []
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "action_option_generation",
-        "action_selection",
-        "action_option_generation_without_history",
-        "action_selection_without_history",
-    ],
-)
-def test_prompts_only_use_supported_placeholders(name: str) -> None:
-    """Keep JSON examples literal and expose only the placeholders filled by the agent."""
-    template = load_agent_prompt(name)
-    assert "Office" not in template
-    assert "control_label" not in template
-    placeholders = set(re.findall(r"\{([a-z_]+)\}", template))
-    expected = {"instruction", "num_options"}
-    if name.startswith("action_option_generation"):
-        expected.add("actions")
-    assert placeholders == expected
-    rendered = render_prompt(template, {key: f"<{key}>" for key in expected})
-    assert not re.findall(r"\{([a-z_]+)\}", rendered)
+PROMPT_CONTEXTS = {
+    "action_option_generation": {"instruction": "<g>", "actions": "<A>", "num_options": 2},
+    "action_selection": {"instruction": "<g>", "num_options": 2},
+}
 
 
-def test_generation_prompt_examples_are_valid_tool_calls() -> None:
+@pytest.mark.parametrize("has_history", [True, False])
+@pytest.mark.parametrize("name", PROMPT_CONTEXTS)
+def test_system_prompts_require_every_variable(name: str, has_history: bool) -> None:
+    """Render only with explicit context and reject any missing variable."""
+    context = PROMPT_CONTEXTS[name] | {"has_history": has_history}
+    prompt = render(f"cuwm-qwen3vl/{name}.j2", **context)
+    assert "Office" not in prompt
+    assert "control_label" not in prompt
+    assert "<g>" in prompt
+    assert ("previous step" in prompt.lower()) is has_history
+    for missing in context:
+        with pytest.raises(UndefinedError, match=missing):
+            render(
+                f"cuwm-qwen3vl/{name}.j2",
+                **{key: value for key, value in context.items() if key != missing},
+            )
+
+
+@pytest.mark.parametrize("has_history", [True, False])
+def test_generation_prompt_examples_are_valid_tool_calls(has_history: bool) -> None:
     """Show only `computer_use` tool calls from the Qwen3-VL action space."""
-    template = load_agent_prompt("action_option_generation")
+    prompt = render(
+        "cuwm-qwen3vl/action_option_generation.j2",
+        has_history=has_history,
+        **PROMPT_CONTEXTS["action_option_generation"],
+    )
     examples = [
-        json.loads(example) for example in re.findall(r"```json\n(.*?)\n```", template, re.DOTALL)
+        json.loads(example) for example in re.findall(r"```json\n(.*?)\n```", prompt, re.DOTALL)
     ]
     assert [example["tool_call"]["arguments"]["action"] for example in examples] == [
         "left_click",
@@ -165,6 +189,27 @@ def test_generation_prompt_examples_are_valid_tool_calls() -> None:
     ]
     assert all(set(example) == {"thoughts", "action", "tool_call"} for example in examples)
     assert all(example["tool_call"]["name"] == "computer_use" for example in examples)
+
+
+def test_inserted_text_is_not_interpreted_as_a_template() -> None:
+    """Keep Jinja-like and JSON instruction text literal in prompts and message fragments."""
+    instruction = 'Type {{ literal }} and {"key": [1]} {% raw %}'
+    prompt = render(
+        "cuwm-qwen3vl/action_selection.j2",
+        has_history=True,
+        instruction=instruction,
+        num_options=3,
+    )
+    assert f"The task instruction is:\n{instruction}\n" in prompt
+    assert render("cuwm-qwen3vl/history_step.j2", step=4, action=instruction) == (
+        f"Step 4 executed action:\n{instruction}"
+    )
+    assert render("cuwm-qwen3vl/action.j2", action="Click {{ x }}.", tool_call='{"a": 1}') == (
+        'Action: Click {{ x }}.\n<tool_call>\n{"a": 1}\n</tool_call>'
+    )
+    assert render("cuwm-qwen3vl/action_option.j2", index=2, action="Action: Wait.") == (
+        "Action Option 2:\n - Action:\nAction: Wait.\n - Predicted State Image: see below."
+    )
 
 
 def test_predict_simulates_every_candidate_and_executes_the_selected_one(
@@ -188,6 +233,7 @@ def test_predict_simulates_every_candidate_and_executes_the_selected_one(
     assert json.dumps(CANDIDATES[0]["tool_call"]) in text_model.prompts[0]
     assert "Click the Chrome icon." in text_model.prompts[0]
     assert json.dumps(CANDIDATES[1]["tool_call"]) in text_model.prompts[1]
+    assert "World Model assistant for desktop applications" in text_model.prompts[0]
     assert image_model.prompts[0].startswith("Transition 1\n\n")
     with Image.open(BytesIO(text_model.screenshots[0])) as screenshot:
         assert screenshot.size == (992, 992)
@@ -268,12 +314,11 @@ def test_invalid_selection_executes_nothing(
     assert agent.screenshots == []
 
 
-@pytest.mark.parametrize("name", ["action_option_generation", "action_selection"])
+@pytest.mark.parametrize("name", PROMPT_CONTEXTS)
 def test_prompts_without_history_only_drop_the_history_input(name: str) -> None:
     """Describe no previous steps when K = 0 while keeping the rest of the prompt."""
-    with_history = load_agent_prompt(name)
-    without_history = load_agent_prompt(f"{name}_without_history")
-    assert "previous step" in with_history.lower()
+    with_history = render(f"cuwm-qwen3vl/{name}.j2", has_history=True, **PROMPT_CONTEXTS[name])
+    without_history = render(f"cuwm-qwen3vl/{name}.j2", has_history=False, **PROMPT_CONTEXTS[name])
     assert "previous" not in without_history.lower()
     assert without_history.endswith(with_history.splitlines()[-1])
     assert without_history.startswith(with_history.splitlines()[0])
@@ -302,10 +347,10 @@ def test_zero_history_omits_previous_steps(agent: Qwen3VLCUWMAgent, observation:
         assert count_images(messages[1]) == image_count
 
 
-def test_first_step_with_history_reports_no_previous_steps(
+def test_first_step_with_history_starts_at_the_current_screenshot(
     agent: Qwen3VLCUWMAgent, observation: dict
 ) -> None:
-    """Keep the history input with an explicit empty marker before any action is executed."""
+    """Send no history parts before any action is executed, as the prompt describes."""
     responses = [
         completion(json.dumps(CANDIDATES)),
         completion('{"action_idx": 1, "thought": "Open Chrome."}'),
@@ -315,8 +360,12 @@ def test_first_step_with_history_reports_no_previous_steps(
     ) as mock_create:
         agent.predict("Open example.com", observation)
     generation = mock_create.call_args_list[0].kwargs["messages"]
-    texts = [part["text"] for part in generation[1]["content"] if part["type"] == "text"]
-    assert texts[:2] == ["Previous steps:", "None"]
+    assert "This input is empty at the first step" in generation[0]["content"][0]["text"]
+    assert generation[1]["content"][0] == {
+        "type": "text",
+        "text": "The current screenshot is: See the image below.",
+    }
+    assert count_images(generation[1]) == 1
 
 
 def test_unparseable_candidates_skip_simulation(
@@ -336,7 +385,7 @@ def test_unparseable_candidates_skip_simulation(
 
 
 def test_parse_candidates_skips_malformed_options_and_truncates(
-    agent: Qwen3VLCUWMAgent,
+    agent: Qwen3VLCUWMAgent, supported_actions: list[str]
 ) -> None:
     """Keep only valid `computer_use` candidates, up to the requested number."""
     options = [
@@ -349,4 +398,4 @@ def test_parse_candidates_skips_malformed_options_and_truncates(
         CANDIDATES[0],
     ]
     response = "```json\n" + json.dumps(options) + "\n```"
-    assert agent.parse_candidates(response) == CANDIDATES
+    assert agent.parse_candidates(response, supported_actions) == CANDIDATES

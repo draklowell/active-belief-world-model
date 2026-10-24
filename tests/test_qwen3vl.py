@@ -1,3 +1,4 @@
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -126,8 +127,6 @@ class TestQwen3VLAgent:
 
     def test_predict_flow(self, agent: Qwen3VLAgent) -> None:
         image = Image.new("RGB", (1000, 1000), color="white")
-        from io import BytesIO
-
         buf = BytesIO()
         image.save(buf, format="PNG")
         obs = {"screenshot": buf.getvalue()}

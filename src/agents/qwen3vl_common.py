@@ -1,4 +1,5 @@
 import base64
+import json
 import math
 from io import BytesIO
 from ssl import SSLError
@@ -9,19 +10,7 @@ import openai
 from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
 
-COMPUTER_USE_ACTIONS = (
-    "key",
-    "type",
-    "mouse_move",
-    "left_click",
-    "left_click_drag",
-    "right_click",
-    "middle_click",
-    "double_click",
-    "scroll",
-    "wait",
-    "terminate",
-)
+from prompts import render
 
 
 def round_by_factor(number: float, factor: int) -> int:
@@ -173,91 +162,31 @@ def build_computer_use_tool(
     Returns:
         Tool definition with the environment description, action names, and their arguments.
     """
-    resolution = (
-        f"* The screen's resolution is {processed_width}x{processed_height}."
-        if coordinate_type == "absolute"
-        else "* The screen's resolution is 1000x1000."
+    description_prompt = render(
+        "qwen3vl/description.j2",
+        coordinate_type=coordinate_type,
+        processed_width=processed_width,
+        processed_height=processed_height,
     )
-    description_prompt = "\n".join(
-        [
-            "Use a mouse and keyboard to interact with a computer, and take screenshots.",
-            (
-                "* This is an interface to a desktop GUI. You do not have access to a terminal "
-                "or applications menu. You must click on desktop icons to start applications."
-            ),
-            (
-                "* Some applications may take time to start or process actions, so you may need "
-                "to wait and take successive screenshots to see the results of your actions. "
-                "E.g. if you click on Firefox and a window doesn't open, try wait and taking "
-                "another screenshot."
-            ),
-            resolution,
-            (
-                "* Whenever you intend to move the cursor to click on an element like an icon, "
-                "you should consult a screenshot to determine the coordinates of the element "
-                "before moving the cursor."
-            ),
-            (
-                "* If you tried clicking on a program or link but it failed to load even after "
-                "waiting, try adjusting your cursor position so that the tip of the cursor "
-                "visually falls on the element that you want to click."
-            ),
-            (
-                "* Make sure to click any buttons, links, icons, etc with the cursor tip in "
-                "the center of the element. Don't click boxes on their edges unless asked."
-            ),
-        ]
+    return json.loads(
+        render(
+            "qwen3vl/tools.json.j2",
+            description_prompt=description_prompt,
+            action_descriptions=render("qwen3vl/action_descriptions.j2"),
+        )
     )
-    action_descriptions = (
-        "* `key`: Performs key down presses on the arguments passed in order, "
-        "then performs key releases in reverse order.\n"
-        "* `type`: Type a string of text on the keyboard.\n"
-        "* `mouse_move`: Move cursor to a specified (x, y) pixel coordinate.\n"
-        "* `left_click`: Click the left mouse button at (x, y).\n"
-        "* `left_click_drag`: Click and drag cursor to (x, y).\n"
-        "* `right_click`: Click the right mouse button at (x, y).\n"
-        "* `middle_click`: Click the middle mouse button at (x, y).\n"
-        "* `double_click`: Double-click left mouse button at (x, y).\n"
-        "* `scroll`: Performs a scroll of the mouse scroll wheel.\n"
-        "* `wait`: Wait specified seconds for the change to happen.\n"
-        "* `terminate`: Terminate the current task and report completion status.\n"
-    )
-    return {
-        "type": "function",
-        "function": {
-            "name_for_human": "computer_use",
-            "name": "computer_use",
-            "description": description_prompt,
-            "parameters": {
-                "properties": {
-                    "action": {
-                        "description": action_descriptions,
-                        "enum": list(COMPUTER_USE_ACTIONS),
-                        "type": "string",
-                    },
-                    "keys": {"description": "Required only by `action=key`.", "type": "array"},
-                    "text": {
-                        "description": "Required only by `action=type`.",
-                        "type": "string",
-                    },
-                    "coordinate": {
-                        "description": "The x,y coordinates for mouse actions.",
-                        "type": "array",
-                    },
-                    "pixels": {"description": "The amount of scrolling.", "type": "number"},
-                    "time": {"description": "The seconds to wait.", "type": "number"},
-                    "status": {
-                        "description": "The status of the task.",
-                        "type": "string",
-                        "enum": ["success", "failure"],
-                    },
-                },
-                "required": ["action"],
-                "type": "object",
-            },
-            "args_format": "Format the arguments as a JSON object.",
-        },
-    }
+
+
+def list_computer_use_actions(computer_use_tool: dict) -> list[str]:
+    """List the action names accepted by a `computer_use` tool definition.
+
+    Args:
+        computer_use_tool: Tool definition returned by build_computer_use_tool.
+
+    Returns:
+        Supported values of the required `action` argument.
+    """
+    return computer_use_tool["function"]["parameters"]["properties"]["action"]["enum"]
 
 
 @backoff.on_exception(

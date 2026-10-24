@@ -214,22 +214,13 @@ tempCodeRunnerFile.py
 
 .artifacts/
 
-# Data: never commit raw/interim/processed data, only the checksums and READMEs
+# Data: never commit raw/interim/processed data, only the READMEs
 data/raw/*
 !data/raw/.gitkeep
-!data/raw/CHECKSUMS.txt
 data/interim/*
 !data/interim/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
-
-# Models: weights are published to Hugging Face Hub, not committed (see models/README.md)
-models/*
-!models/.gitkeep
-!models/README.md
-
-# Note: results/metrics.json and results/figures/*.png ARE committed (small, and
-# they're what makes the numbers in README verifiable without rerunning training).
 
 # Env secrets
 .env
