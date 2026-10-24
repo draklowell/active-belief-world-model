@@ -23,14 +23,9 @@ def main() -> None:
         "--action", required=True, help="Complete structured candidate GUI action, such as JSON."
     )
     parser.add_argument(
-        "--app-name",
-        required=True,
-        help="Application shown in the screenshot, such as Microsoft Excel.",
-    )
-    parser.add_argument(
         "--gui-description",
         required=True,
-        help="Function-level description of the candidate action and its arguments, not a caption.",
+        help="Natural-language description of the candidate action, not a screenshot caption.",
     )
     parser.add_argument("--config", type=Path, default=Path("config/cuwm.toml"))
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -41,7 +36,7 @@ def main() -> None:
     screenshot = args.screenshot.read_bytes()
     cuwm = build_cuwm(settings)
     text_description = cuwm.generate_text_desc(
-        screenshot, args.action, app_name=args.app_name, gui_description=args.gui_description
+        screenshot, args.action, gui_description=args.gui_description
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     transition_path = args.output_dir / "transition.txt"

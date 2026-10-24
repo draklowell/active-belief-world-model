@@ -20,12 +20,9 @@ from world_models.backends.openai_text import OpenAITextModel
 from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
 
 CANDIDATE_ACTION = (
-    '{"function": "click", "args": ' '{"control_label": 15, "coordinate": null, "button": "left"}}'
+    '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [512, 64]}}'
 )
-GUI_DESCRIPTION = (
-    "Click the UI control identified by accessibility control_label 15 "
-    "using the left mouse button."
-)
+GUI_DESCRIPTION = "Click the column H header."
 
 
 def encode_png(size: tuple[int, int], color: str) -> bytes:
@@ -62,7 +59,6 @@ def test_predict_passes_original_screenshot_through_both_stages() -> None:
     prediction = cuwm.predict(
         screenshot=b"original screenshot",
         action=CANDIDATE_ACTION,
-        app_name="Microsoft Excel",
         gui_description=GUI_DESCRIPTION,
     )
 
@@ -70,7 +66,7 @@ def test_predict_passes_original_screenshot_through_both_stages() -> None:
     assert [call[1] for call in calls] == [b"original screenshot", b"original screenshot"]
     assert CANDIDATE_ACTION in calls[0][2]
     assert GUI_DESCRIPTION in calls[0][2]
-    assert "Microsoft Excel" in calls[0][2]
+    assert "World Model assistant for desktop applications" in calls[0][2]
     assert calls[0][2].startswith("Your task is to predict and describe")
     assert "Dropdown / Popout" in calls[0][2]
     assert system_prompts == [""]
@@ -440,7 +436,7 @@ def test_cli_uses_the_configured_mage_request_and_preserves_text_only(
             prompt = body["messages"][1]["content"][1]["text"]
             assert CANDIDATE_ACTION in prompt
             assert GUI_DESCRIPTION in prompt
-            assert "Microsoft Excel" in prompt
+            assert "World Model assistant for desktop applications" in prompt
             assert prompt.count("Your task is to predict and describe") == 1
             assert (
                 "Current UI Screenshot:\n[Current UI screenshot attached as image content]"
@@ -519,8 +515,6 @@ def test_cli_uses_the_configured_mage_request_and_preserves_text_only(
         str(screenshot_path),
         "--action",
         CANDIDATE_ACTION,
-        "--app-name",
-        "Microsoft Excel",
         "--gui-description",
         GUI_DESCRIPTION,
         "--config",
@@ -589,35 +583,30 @@ def test_image_model_rejects_nonpositive_geometry(
         )
 
 
-@pytest.mark.parametrize("missing_option", ["--app-name", "--gui-description"])
-def test_cli_requires_the_paper_context(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], missing_option: str
+def test_cli_requires_the_action_description(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Explain missing paper inputs before loading files or constructing model clients."""
-    arguments = {
-        "--screenshot": "missing.png",
-        "--action": CANDIDATE_ACTION,
-        "--app-name": "Microsoft Excel",
-        "--gui-description": GUI_DESCRIPTION,
-        "--output-dir": "unused-output",
-    }
-    arguments.pop(missing_option)
-    monkeypatch.setattr(
-        sys, "argv", ["run_cuwm.py", *(value for pair in arguments.items() for value in pair)]
-    )
+    """Explain a missing action description before loading files or constructing clients."""
+    arguments = [
+        "run_cuwm.py",
+        "--screenshot",
+        "missing.png",
+        "--action",
+        CANDIDATE_ACTION,
+        "--output-dir",
+        "unused-output",
+    ]
+    monkeypatch.setattr(sys, "argv", arguments)
     with pytest.raises(SystemExit) as error:
         run_cuwm.main()
     assert error.value.code == 2
-    assert missing_option in capsys.readouterr().err
+    assert "--gui-description" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("method_name", ["generate_text_desc", "predict"])
-@pytest.mark.parametrize("missing_argument", ["app_name", "gui_description"])
-def test_facade_requires_explicit_paper_context(method_name: str, missing_argument: str) -> None:
-    """Reject omitted context through both public textual inference entry points."""
+def test_facade_requires_explicit_action_description(method_name: str) -> None:
+    """Reject an omitted description through both public textual inference entry points."""
     cuwm = CUWM(text_model=Mock(), image_model=Mock())
-    context = {"app_name": "Microsoft Excel", "gui_description": GUI_DESCRIPTION}
-    context.pop(missing_argument)
     method = getattr(cuwm, method_name)
-    with pytest.raises(TypeError, match=missing_argument):
-        method(b"original screenshot", CANDIDATE_ACTION, **context)
+    with pytest.raises(TypeError, match="gui_description"):
+        method(b"original screenshot", CANDIDATE_ACTION)

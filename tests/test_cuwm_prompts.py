@@ -9,6 +9,7 @@ import pytest
 from world_models.prompts import cuwm
 from world_models.prompts.cuwm import (
     IMAGE_ATTACHMENT_MARKER,
+    load_desktop_transition_prompt,
     load_paper_prompt,
     render_textual_state_transition,
 )
@@ -111,35 +112,52 @@ def test_judge_retains_all_scoring_dimensions_and_rationales() -> None:
     assert "{PRED}" in prompt and "{GT}" in prompt
 
 
-def test_render_transition_preserves_the_complete_template() -> None:
-    """Substitute the four paper slots without dropping any original instructions."""
-    action = '{"function": "click", "args": {"control_label": 15, "button": "left"}}'
-    description = "Click accessibility control_label 15 using the left mouse button."
-    prompt = render_textual_state_transition(
-        action, app_name="Microsoft Excel", gui_description=description
+def test_desktop_transition_prompt_drops_only_the_application_context() -> None:
+    """Keep the paper's transition instructions while inferring the application visually."""
+    paper_prompt = load_paper_prompt("textual_state_transition")
+    desktop_prompt = load_desktop_transition_prompt()
+    assert {"app_name", "image", "action", "gui_description"} == set(
+        re.findall(r"\{([a-z_]+)\}", paper_prompt)
     )
+    assert {"image", "action", "gui_description"} == set(
+        re.findall(r"\{([a-z_]+)\}", desktop_prompt)
+    )
+    assert "Office" not in desktop_prompt
+    shared_sections = [
+        "Your task is to predict and describe the likely appearance of the Next UI Screenshot",
+        "Current UI Screenshot:\n{image}\n\nAction:\n{action}",
+        "GUI Action Description:\n{gui_description}",
+        "Only describe changed parts; for unchanged elements, state explicitly",
+        "Do not include reasoning, internal thoughts, or references to the images",
+        "Output a single paragraph of vivid, precise visual description",
+    ]
+    assert all(section in paper_prompt for section in shared_sections)
+    assert all(section in desktop_prompt for section in shared_sections)
+
+
+def test_render_transition_preserves_the_complete_template() -> None:
+    """Substitute the three desktop slots without dropping any adapted instructions."""
+    action = '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [1, 2]}}'
+    description = "Click the File menu."
+    prompt = render_textual_state_transition(action, gui_description=description)
     expected = (
-        load_paper_prompt("textual_state_transition")
-        .replace("{app_name}", "Microsoft Excel")
+        load_desktop_transition_prompt()
         .replace("{image}", IMAGE_ATTACHMENT_MARKER)
         .replace("{action}", action)
         .replace("{gui_description}", description)
     )
     assert prompt == expected
-    assert prompt.count("Microsoft Excel") == 2
     assert "Current UI Screenshot:\n" + IMAGE_ATTACHMENT_MARKER in prompt
     assert "Do not answer in bullet points." in prompt
-    assert 'unchanged elements, state explicitly (e.g., "Ribbon unchanged")' in prompt
-    assert 'enclosed in double quotes (e.g., "Home", "File", "New Slide")' in prompt
+    assert 'unchanged elements, state explicitly (e.g., "Toolbar unchanged")' in prompt
+    assert 'enclosed in double quotes (e.g., "File", "Edit", "View")' in prompt
 
 
 def test_render_preserves_json_and_placeholder_like_user_text() -> None:
     """Treat inserted action and description values as opaque text in a single pass."""
-    action = '{"function": "type", "args": {"keys": "Keep {image} and {app_name}"}}'
+    action = '{"name": "computer_use", "arguments": {"action": "type", "text": "{image}"}}'
     description = "Type the literal text {gui_description} without substitution."
-    prompt = render_textual_state_transition(
-        action, app_name="Microsoft Word", gui_description=description
-    )
+    prompt = render_textual_state_transition(action, gui_description=description)
     assert "Action:\n" + action in prompt
     assert "GUI Action Description:\n" + description in prompt
 
@@ -149,15 +167,13 @@ def test_render_preserves_json_and_placeholder_like_user_text() -> None:
     [
         ("action", ""),
         ("action", "   "),
-        ("app_name", ""),
-        ("app_name", "   "),
         ("gui_description", ""),
         ("gui_description", "\n"),
     ],
 )
 def test_render_rejects_missing_textual_context(field: str, value: str) -> None:
     """Reject empty context explicitly instead of fabricating missing paper inputs."""
-    values = {"action": "click()", "app_name": "Microsoft Excel", "gui_description": "Click."}
+    values = {"action": "click()", "gui_description": "Click."}
     values[field] = value
     with pytest.raises(ValueError, match=field):
         render_textual_state_transition(**values)
@@ -165,12 +181,12 @@ def test_render_rejects_missing_textual_context(field: str, value: str) -> None:
 
 def test_render_rejects_unknown_source_placeholders(monkeypatch: pytest.MonkeyPatch) -> None:
     """Reject unknown template slots before sending an unresolved instruction to inference."""
-    template = load_paper_prompt("textual_state_transition")
-    monkeypatch.setattr(cuwm, "load_paper_prompt", lambda name: template + "\n{unsupported}")
+    template = load_desktop_transition_prompt()
+    monkeypatch.setattr(
+        cuwm, "load_desktop_transition_prompt", lambda: template + "\n{unsupported}"
+    )
     with pytest.raises(ValueError, match="unsupported"):
-        render_textual_state_transition(
-            "click()", app_name="Microsoft Excel", gui_description="Click the control."
-        )
+        render_textual_state_transition("click()", gui_description="Click the control.")
 
 
 def test_prompt_loading_is_independent_of_working_directory(
@@ -180,6 +196,7 @@ def test_prompt_loading_is_independent_of_working_directory(
     monkeypatch.chdir(tmp_path)
     for name, digest in PAPER_PROMPTS.items():
         assert hashlib.sha256(load_paper_prompt(name).encode()).hexdigest() == digest
+    assert load_desktop_transition_prompt().startswith("Your task is to predict")
 
 
 @pytest.mark.parametrize("name", ["../cuwm", "unknown", "textual_state_transition.md"])

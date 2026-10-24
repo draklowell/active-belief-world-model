@@ -4,9 +4,9 @@ CUWM predicts one hypothetical GUI transition without executing the candidate ac
 It reproduces the two-stage factorization in
 [Guan et al., section 3.1 and Figure 2](https://arxiv.org/abs/2602.17365):
 
-1. CUWM renders the complete Appendix A.5.2 prompt using the supplied application
-   and structured action context, then calls the textual backend to predict the
-   immediate UI changes.
+1. CUWM renders the desktop adaptation of the Appendix A.5.2 prompt using the
+   structured action and its natural-language description, then calls the
+   textual backend to predict the immediate UI changes.
 2. CUWM prepares an edit instruction with preservation requirements, then calls the
    visual backend using the original screenshot.
 
@@ -14,9 +14,12 @@ Both stages receive encoded screenshot `bytes`. The textual result is a plain
 string, and the visual result is PNG-encoded `bytes`. `CUWM.predict` returns a
 `CUWMPrediction` containing `text_description` and `predicted_screenshot`.
 
-`cuwm.py` owns orchestration and invokes the paper-prompt renderer. The complete
-original prompt sources live in [`prompts/cuwm/paper/`](prompts/cuwm/paper/), with
-provenance and preserved quirks in the [prompt README](prompts/cuwm/README.md).
+`cuwm.py` owns orchestration and invokes the transition-prompt renderer. The complete
+original prompt sources live in [`prompts/cuwm/paper/`](prompts/cuwm/paper/). The
+runtime prompt is the desktop adaptation in
+[`prompts/cuwm/textual_state_transition.md`](prompts/cuwm/textual_state_transition.md).
+The [CUWM changes README](prompts/cuwm/README.md) documents how the world model
+differs from the original source and paper.
 `base.py` defines the backend
 protocols, and `types.py` defines the prediction dataclass. Importing `world_models`
 uses only the standard library. Clients in `backends/` encode requests and call
@@ -32,31 +35,26 @@ from world_models.config import build_cuwm, load_cuwm_config
 cuwm = build_cuwm(load_cuwm_config("config/cuwm.toml"))
 screenshot = Path("data/example.png").read_bytes()
 action = (
-    '{"function": "click", "args": '
-    '{"control_label": 15, "coordinate": null, "button": "left"}}'
-)
-gui_description = (
-    "Click the UI control identified by accessibility control_label 15 "
-    "using the left mouse button."
+    '{"name": "computer_use", '
+    '"arguments": {"action": "left_click", "coordinate": [512, 64]}}'
 )
 prediction = cuwm.predict(
     screenshot=screenshot,
     action=action,
-    app_name="Microsoft Excel",
-    gui_description=gui_description,
+    gui_description="Click the column H header.",
 )
 Path("predicted_next_state.png").write_bytes(prediction.predicted_screenshot)
 ```
 
-Use `cuwm.generate_text_desc(screenshot, action, app_name=..., gui_description=...)` or
+Use `cuwm.generate_text_desc(screenshot, action, gui_description=...)` or
 `cuwm.generate_image(screenshot, text_description)` to run stages independently.
-`generate_text_desc` and `predict` require both context values as keyword
-arguments. This intentionally replaces the previous two-input API because the
-original research prompt requires an application name and a function-level
-description of the candidate action and its arguments. A GUI description is not
-a screenshot caption. Keep the complete structured action representation,
-including targeting arguments. Missing keywords or blank textual inputs fail;
-CUWM does not infer an application or fabricate missing context.
+`generate_text_desc` and `predict` require `gui_description` as a keyword
+argument: the natural-language description of the candidate action, such as the
+`Action:` sentence of a Qwen3-VL response. A GUI description is not a screenshot
+caption. Keep the complete structured action representation, such as the
+`computer_use` tool call JSON, including targeting arguments. The model infers the
+application from the screenshot; no application name is accepted. A missing
+keyword or blank textual input fails.
 
 For dependency injection, construct `CUWM(text_model=..., image_model=...)` with
 objects implementing these contracts:
@@ -64,7 +62,7 @@ objects implementing these contracts:
 - `TextTransitionModel.generate(screenshot, prompt, *, system_prompt) -> str`
 - `ImageTransitionModel.generate(screenshot, prompt) -> bytes`
 
-The canonical paper template is distinct from the runtime-substituted prompt.
+The canonical paper template is distinct from the runtime-substituted desktop prompt.
 The runtime renderer supplies textual variables and an image-attachment marker;
 the actual screenshot is attached using the backend's existing multimodal image
 content. The complete prompt appears once in user text, with an empty system
@@ -76,7 +74,9 @@ actions. The image adapter appends stable-diffusion.cpp sampling controls to the
 request prompt as server metadata. The image stage's existing preservation
 instruction is custom project text, separate from the four canonical paper prompts.
 The three agent-evaluation
-and judge prompts are stored and loadable without an execution pipeline.
+and judge prompts are stored and loadable without an execution pipeline. The
+[Qwen3-VL CUWM agent](../agents/qwen3vl_cuwm/README.md) uses adapted copies of the
+action option generation and selection prompts.
 
 ## Configuration
 
@@ -199,16 +199,15 @@ From the repository root with the inference endpoints configured:
 ```bash
 uv run python scripts/run_cuwm.py \
   --screenshot data/example.png \
-  --action '{"function":"click","args":{"control_label":15,"coordinate":null,"button":"left"}}' \
-  --app-name "Microsoft Excel" \
-  --gui-description "Click accessibility control_label 15 using the left mouse button." \
+  --action '{"name":"computer_use","arguments":{"action":"left_click","coordinate":[512,64]}}' \
+  --gui-description "Click the column H header." \
   --config config/cuwm.toml \
   --output-dir .artifacts/cuwm/inference
 ```
 
 Supply an existing screenshot. The script writes `transition.txt` before visual
 inference, followed by `predicted_next_state.png`. Add `--text-only` to produce
-only the description. `--app-name` and `--gui-description` are required in both
+only the description. `--gui-description` is required in both
 modes because both perform textual transition generation. Use a fresh output
 directory for each run to distinguish
 new predictions from earlier outputs. For source-tree development without an
@@ -233,8 +232,8 @@ downscaled dimensions.
 This is an architectural reproduction using configurable pretrained backbones.
 The paper uses trained Qwen2.5-VL and Qwen-Image-Edit-2509 with SFT and RL. This
 implementation does not reproduce its weights, training, or benchmark results.
-The full Office-oriented paper prompt now receives explicit application and
-function-level context, but actions remain caller-supplied strings without an
+The transition prompt is a desktop adaptation of the Office-oriented paper prompt
+without an application name, and actions remain caller-supplied strings without an
 action parser or generated accessibility annotations. Models may alter unrelated
 UI details; alignment does not prevent those errors. The supplied Mage
 `seed = 2026` requests reproducible

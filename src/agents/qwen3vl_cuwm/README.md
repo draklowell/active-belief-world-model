@@ -1,0 +1,253 @@
+# Qwen3-VL CUWM agent
+
+`Qwen3VLCUWMAgent` in [`qwen3vl_cuwm.py`](../qwen3vl_cuwm.py) is a screenshot agent
+that simulates several candidate actions with the Computer-Using World Model
+(CUWM) before executing one of them. It implements the world-model-guided
+test-time action search of
+[Guan et al., section 3.4 and Appendix A.4](https://arxiv.org/abs/2602.17365) on
+top of the action space of the Qwen3-VL agent in [`qwen3vl.py`](../qwen3vl.py).
+
+The agent does not inherit from `Qwen3VLAgent` or `CUWM`. It owns its policy
+client and history, and it holds a `CUWM` instance by composition. Functions
+used by both Qwen3-VL agents live in [`qwen3vl_common.py`](../qwen3vl_common.py):
+screenshot resizing and encoding, the `computer_use` tool definition, chat
+completion requests with retries, and the conversion of tool calls into
+PyAutoGUI commands. `Qwen3VLAgent` keeps its behavior and now uses the same
+functions.
+
+## Notation
+
+| Symbol     | Meaning                                                                    |
+| ---------- | -------------------------------------------------------------------------- |
+| `A`        | `computer_use` action space of `qwen3vl.py`: a description and a JSON call |
+| `S`        | State space, the set of possible screenshots of the environment            |
+| `s(t)`     | Current screenshot at step `t`                                             |
+| `a(t)`     | Action executed at step `t` after observing `s(t)`                         |
+| `a_i(t)`   | Candidate action `i` generated at step `t`                                 |
+| `s_i(t+1)` | Predicted screenshot after executing `a_i(t)` in `s(t)`                    |
+| `Δ_i(t)`   | Predicted textual description of the UI changes caused by `a_i(t)`         |
+| `g`        | Task instruction (goal)                                                    |
+| `N`, `K`   | Number of candidates (`num_options`) and history length (`history_n`)      |
+
+## Pipeline
+
+Each call to `predict` performs one step:
+
+1. Observe `s(t)`. The screenshot is resized with `smart_resize` to multiples of
+   32 pixels and encoded as PNG. The same processed screenshot is used by the
+   policy and by CUWM.
+2. Generate candidates
+   `{a_i(t)} for i = 1..N ~ P({a} | s(t), {a(k), s(k)} for t - K <= k < t, g, A)`
+   with the adapted
+   [action option generation prompt](action_option_generation.md) as the
+   system prompt. The prompt contains `g`, the `computer_use` tool definition
+   with its screen resolution, and `N`. The user message contains the `K` most
+   recent screenshots, each followed by its executed action, and then `s(t)`.
+   When `K = 0`, the history-free prompt variant is used and the user message
+   contains only `s(t)`. The policy answers with one JSON array whose elements
+   contain `thoughts`, `action` (one imperative sentence), and `tool_call`
+   (`{"name": "computer_use", "arguments": {...}}`). The response is validated
+   before simulation (see [Validation](#validation)).
+3. For each candidate, call `CUWM.predict(s(t), action, gui_description=...)`,
+   where the action is the tool call JSON and the GUI description is the
+   candidate's `action` sentence:
+   1. `Δ_i(t) ~ P(Δ | s(t), a_i(t))` with the CUWM textual stage, served by the
+      same Qwen3-VL endpoint (`OPENAI_BASE_URL`) as the policy.
+   2. `s_i(t+1) ~ P(s | s(t), Δ_i(t))` with the CUWM visual stage, served by
+      MageFlowEdit-Turbo on stable-diffusion.cpp (`IMAGE_BASE_URL`).
+4. Select `j ~ P(1..N | {a_i(t), s_i(t+1)} for i = 1..N, {a(k), s(k)} for t - K <= k <= t, g)`
+   with the adapted [action selection prompt](action_selection.md) as the
+   system prompt. The user message contains the same history, `s(t)`, and each
+   option as its description, its tool call, and its predicted screenshot. The
+   policy answers with `{"action_idx": j, "thought": ...}`, and `j` is validated
+   against the number of candidates.
+5. Execute `a(t) = a_j(t)`. Only the selected tool call is converted into
+   PyAutoGUI code, using the original screen size, and returned to the
+   environment. `terminate` becomes `DONE` and `wait` becomes `WAIT`. The pair
+   `(s(t), a(t))` is appended to the history, and the benchmark repeats from
+   step 1 until `DONE` or the step limit.
+
+`predict` returns a JSON trace with every candidate, its predicted transition
+`Δ_i(t)`, and the raw selection response, which `scripts/benchmark.py` records
+in the MLflow `predict` span. Exceptions from CUWM, such as a truncated
+transition, propagate and fail the task.
+
+## Validation
+
+Both policy responses are validated before their content is used.
+
+`parse_candidates` validates the candidate response:
+
+1. The first JSON array in the response is extracted, so a surrounding Markdown
+   code fence is tolerated. A response without a decodable array yields no
+   candidates.
+2. Each element must be an object with a nonempty string `action` and a
+   `tool_call` object whose `name` is `computer_use` and whose `arguments`
+   object contains an `action` from the `computer_use` enumeration (`key`,
+   `type`, `mouse_move`, `left_click`, `left_click_drag`, `right_click`,
+   `middle_click`, `double_click`, `scroll`, `wait`, or `terminate`). Elements
+   failing any check are logged and discarded. A missing `thoughts` field is replaced with an empty string.
+3. The valid candidates are truncated to the first `N` in generation order.
+
+Only validated candidates are simulated by CUWM. If none remain, CUWM and the
+selection request are skipped and the raw candidate response is returned.
+
+`parse_selection` validates the selection response: the first JSON object must
+decode and contain an integer `action_idx` between 1 and the number of
+validated candidates.
+
+A step without a validated candidate or selection returns no commands and
+leaves the history unchanged, so the next step observes the same screenshot, as
+the base Qwen3-VL agent does after a malformed response. Validation checks the
+tool call structure and the action name, but not the other arguments such as
+`coordinate`, `keys`, or `text`. The enumeration is the `COMPUTER_USE_ACTIONS`
+constant in `qwen3vl_common.py`, which also defines the tool signature shown to
+the policy.
+
+One step costs `N + 2` chat completions and `N` image edits.
+
+## Prompts
+
+Both prompts are adapted copies of the paper prompts stored in
+[`world_models/prompts/cuwm/paper/`](../../world_models/prompts/cuwm/paper/).
+Each has two variants. With `K > 0`, the agent uses
+[`action_option_generation.md`](action_option_generation.md) and
+[`action_selection.md`](action_selection.md), which describe the previous steps
+input. At the first step of a task that input contains `None`. With `K = 0`,
+the agent uses
+[`action_option_generation_without_history.md`](action_option_generation_without_history.md)
+and [`action_selection_without_history.md`](action_selection_without_history.md),
+and the messages contain no previous steps section. These variants remove every
+reference to previous steps and are otherwise identical to the history
+variants. Their example thoughts describe the current screenshot instead of the
+previous step, and the drag instruction asks for an earlier `mouse_move` action
+instead of a previous step. Only the history variants add the previous steps
+changes listed below.
+They are wrapped in a `text` fence so `mdformat` does not rewrite them, and
+`render_prompt` substitutes `{instruction}`, `{actions}`, and `{num_options}` in
+one pass without interpreting JSON braces or inserted text.
+
+Changes to the action option generation prompt:
+
+- Office applications are replaced with desktop applications.
+- The annotated screenshot and accessibility inputs are removed, together with
+  the instruction to prefer `control_label` over coordinates. The prompt instead
+  asks for the coordinate of the element center in the stated resolution.
+- A previous steps input is added, and the reasoning checklist asks how the
+  previous steps changed the UI. The examples refer to the previous step only in
+  the history variant.
+- The `{a11y}` placeholder is removed and `{actions}` receives the
+  `computer_use` tool definition, including the environment description and the
+  coordinate resolution of `qwen3vl.py`.
+- Each element has an additional `action` field with one imperative sentence.
+  `tool_call` uses the Qwen3-VL format with `name` and `arguments` instead of
+  `function`, `args`, and `status`.
+- The click, type, and drag examples use `left_click`, `type`, and
+  `left_click_drag`. A `key` shortcut example is added. The `FINISH` example is
+  replaced by `terminate` with status `success` or `failure`.
+- The duplicated "Annotated current screenshot" line of the published listing
+  is not kept.
+
+Changes to the action selection prompt:
+
+- Office applications are replaced with desktop applications.
+- The image markers (`[Current State Screenshot]`, `[Predicted Image i]`) and
+  the five hard-coded options are removed from the prompt. The images and the
+  options are sent in the user message with the paper's labels
+  (`Action Option i`, `- Action:`, `- Predicted State Image: see below.`).
+- The bound of `action_idx` is `{num_options}`, the number of parsed
+  candidates, instead of 5.
+- A previous steps input is added, together with a `Progress` rule that
+  discourages actions repeating an earlier action without changing the UI.
+- The `predicted_state` references are renamed to `predicted_state_image`,
+  matching the field described above them.
+
+## Configuration
+
+[`config/agent-qwen3vl-cuwm.json`](../../../config/agent-qwen3vl-cuwm.json)
+contains the agent options. Omitted keys use the defaults below.
+
+| Key               | Default              | Meaning                                                         |
+| ----------------- | -------------------- | --------------------------------------------------------------- |
+| `model`           | `"qwen3-vl"`         | Served Qwen3-VL identifier for generation and selection         |
+| `max_tokens`      | `32768`              | Maximum generated tokens per policy request                     |
+| `temperature`     | `0.0`                | Policy sampling temperature                                     |
+| `top_p`           | `0.9`                | Policy nucleus sampling mass                                    |
+| `history_n`       | `4`                  | `K`, previous screenshot and action pairs; `0` disables history |
+| `coordinate_type` | `"relative"`         | `relative` 1000x1000 grid or `absolute` processed pixels        |
+| `num_options`     | `5`                  | `N`, candidates requested per step                              |
+| `cuwm_config`     | `"config/cuwm.toml"` | CUWM TOML configuration, relative to the working directory      |
+
+The policy client reads `OPENAI_BASE_URL` and `OPENAI_API_KEY`. CUWM reads the
+endpoints configured in `config/cuwm.toml`, by default `OPENAI_BASE_URL` for the
+textual stage and `IMAGE_BASE_URL` with `IMAGE_API_KEY` for the visual stage.
+Run the benchmark from the repository root:
+
+```bash
+uv run python scripts/benchmark.py \
+  --agent-path agents.qwen3vl_cuwm.Qwen3VLCUWMAgent \
+  --agent-config config/agent-qwen3vl-cuwm.json \
+  --tasks evaluation_examples/test_small.json
+```
+
+## Differences from the CUWM paper
+
+The paper evaluates world-model-guided action search offline (Section 3.4 and
+Appendix A.4): a frozen VLM agent receives the current screenshot and the task
+instruction, proposes five candidate actions with the Appendix A.5 prompt, each
+candidate is simulated by CUWM, and the agent selects the action whose
+predicted outcome best fits the goal. The selected action is compared with the
+GUI-360 ground truth on 339 single-step samples. This agent changes that
+procedure as follows:
+
+01. **Environment and evaluation.** The agent runs closed loop in OSWorld on an
+    Ubuntu desktop with applications such as Chrome, LibreOffice, and GIMP. The
+    selected action is executed, the next real screenshot starts the next step,
+    and the OSWorld evaluator scores the final state. The paper uses recorded
+    Microsoft Word, Excel, and PowerPoint transitions on Windows and scores one
+    step by Function, Status, and Args Match against the ground-truth action.
+02. **Action space.** Candidates are `computer_use` tool calls from `qwen3vl.py`
+    (`key`, `type`, `mouse_move`, `left_click`, `left_click_drag`,
+    `right_click`, `middle_click`, `double_click`, `scroll`, `wait`, and
+    `terminate`) with coordinates on a relative 1000x1000 grid by default. The
+    paper uses `function`, `args`, and `status` with accessibility control labels,
+    `select_text`, and `drag` with start and end coordinates. Task completion is
+    the `terminate` action instead of `status = "FINISH"`.
+03. **Observation.** The policy sees only screenshots. The paper's agent also
+    receives an annotated screenshot with numeric markers and accessibility
+    information with control labels and the application name.
+04. **History.** Generation and selection receive the `K` most recent
+    screenshots and executed actions. The paper conditions both steps only on the
+    current screenshot and the task instruction, which corresponds to `K = 0`
+    with the history-free prompt variants.
+05. **Action description.** Each candidate carries a natural-language `action`
+    sentence besides its JSON call. CUWM receives the JSON call as the action and
+    the sentence as the GUI action description. The paper describes actions
+    only through the structured JSON command.
+06. **Number of candidates.** `N` is configurable with a default of 5, and the
+    selection prompt is rendered for the number of valid candidates. The paper
+    always uses five options.
+07. **Policy model.** One served Qwen3-VL model (the 4B variant in this project)
+    generates candidates, predicts CUWM transitions, and selects the action. The
+    paper's agent backbones are Qwen3-VL-8B, GPT-4.1-mini, GPT-4o, and
+    Gemini-2.0-Flash, and its textual transition model is a separately trained
+    Qwen2.5-VL-7B.
+08. **Selection input.** The selector sees each option's description, tool call,
+    and predicted screenshot, but not `Δ_i(t)`. This matches the paper's
+    image-only setting, which outperformed image plus text with CUWM for all four
+    agents in Table 5. The transitions are only recorded in the returned trace.
+09. **Goal in simulation.** The task instruction is not passed to CUWM, so
+    `Δ_i(t)` depends only on `s(t)` and `a_i(t)`. Appendix A.4.1 states that the
+    instruction is passed to the textual model, although the published
+    transition prompt has no slot for it.
+10. **Prompt placement.** The adapted prompts are system prompts, and the
+    screenshots are user message content. The paper's listings place the
+    images inline at bracketed markers in a single prompt.
+11. **Execution.** Only the selected tool call is converted into PyAutoGUI
+    code. Candidates and selections are validated as described in
+    [Validation](#validation). Invalid candidates are discarded, and a step
+    without a valid candidate or selection yields no action. The paper scores
+    invalid output as zero.
+12. **Simulated candidates.** Every validated candidate is simulated, including
+    `wait` and `terminate`. Beyond validation, no candidate is pruned or
+    deduplicated before simulation.

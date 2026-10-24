@@ -19,23 +19,18 @@ class CUWM:
         self._text_model = text_model
         self._image_model = image_model
 
-    def generate_text_desc(
-        self, screenshot: bytes, action: str, *, app_name: str, gui_description: str
-    ) -> str:
-        """Predict UI changes using the complete paper prompt and explicit action context.
+    def generate_text_desc(self, screenshot: bytes, action: str, *, gui_description: str) -> str:
+        """Predict UI changes using the desktop transition prompt and explicit action context.
 
         Args:
             screenshot: Encoded image of the current GUI state.
             action: Complete structured candidate GUI action represented as text.
-            app_name: Application corresponding to the current screenshot.
-            gui_description: Function-level description of the action and its arguments.
+            gui_description: Natural-language description of the candidate action.
 
         Returns:
             Natural-language description of the expected UI transition.
         """
-        prompt = render_textual_state_transition(
-            action, app_name=app_name, gui_description=gui_description
-        )
+        prompt = render_textual_state_transition(action, gui_description=gui_description)
         return self._text_model.generate(screenshot, prompt, system_prompt="")
 
     def generate_image(self, screenshot: bytes, text_description: str) -> bytes:
@@ -55,22 +50,19 @@ class CUWM:
         )
         return self._image_model.generate(screenshot, prompt)
 
-    def predict(
-        self, screenshot: bytes, action: str, *, app_name: str, gui_description: str
-    ) -> CUWMPrediction:
+    def predict(self, screenshot: bytes, action: str, *, gui_description: str) -> CUWMPrediction:
         """Predict a textual transition and then its visual realization.
 
         Args:
             screenshot: Encoded image of the current GUI state.
             action: Complete structured candidate GUI action represented as text.
-            app_name: Application corresponding to the current screenshot.
-            gui_description: Function-level description of the action and its arguments.
+            gui_description: Natural-language description of the candidate action.
 
         Returns:
             Transition description and PNG-encoded predicted screenshot.
         """
         text_description = self.generate_text_desc(
-            screenshot, action, app_name=app_name, gui_description=gui_description
+            screenshot, action, gui_description=gui_description
         )
         predicted_screenshot = self.generate_image(screenshot, text_description)
         return CUWMPrediction(text_description, predicted_screenshot)

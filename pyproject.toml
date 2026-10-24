@@ -54,7 +54,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-"world_models.prompts.cuwm" = ["paper/*.md", "README.md"]
+"world_models.prompts.cuwm" = ["paper/*.md", "textual_state_transition.md", "README.md"]
 
 [tool.uv]
 required-version = ">=0.13.0"
