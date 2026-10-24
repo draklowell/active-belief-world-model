@@ -29,6 +29,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "mlflow>=3.17.1",
     "graphene>=3.0",
+    "jinja2==3.1.6",
 ]
 
 [dependency-groups]
@@ -53,7 +54,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-"world_models.prompts.cuwm" = ["paper/*.md", "README.md"]
+"prompts" = ["templates/*/*.j2"]
 
 [tool.uv]
 required-version = ">=0.13.0"

@@ -1,7 +1,6 @@
-```text
 Your task is to predict and describe the likely appearance of the Next UI Screenshot, with a strong emphasis on how the UI would change compared to the current state, and where these changes would be located within the interface.
 
-You are acting as a World Model assistant for Office applications such as {app_name}. Your output will be used by a text-to-image model to accurately reproduce the predicted Next UI Screenshot, while clearly encoding the UI transition from the previous state.
+You are acting as a World Model assistant for Office applications such as {{ app_name }}. Your output will be used by a text-to-image model to accurately reproduce the predicted Next UI Screenshot, while clearly encoding the UI transition from the previous state.
 
 You are provided with:
 - A screenshot of the current Office UI, which defines the baseline state
@@ -19,13 +18,13 @@ Important:
 Reference Information:
 
 Current UI Screenshot:
-{image}
+{{ image }}
 
 Action:
-{action}
+{{ action }}
 
 GUI Action Description:
-{gui_description}
+{{ gui_description }}
 
 ---
 
@@ -55,8 +54,7 @@ All visible text in the UI should be enclosed in double quotes (e.g., "Home", "F
 Ensure that your description:
 - Clearly encodes the transition from the current UI to the next UI state
 - Specifies where changes are likely to occur in the UI
-- Uses terminology and layout conventions consistent with {app_name}
+- Uses terminology and layout conventions consistent with {{ app_name }}
 
 Do not include reasoning, internal thoughts, or references to the images as separate entities. Do not answer in bullet points.
 Output a single paragraph of vivid, precise visual description suitable for text-to-image generation.
-```

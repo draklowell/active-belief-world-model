@@ -15,12 +15,11 @@ string, and the visual result is PNG-encoded `bytes`. `CUWM.predict` returns a
 `CUWMPrediction` containing `text_description` and `predicted_screenshot`.
 
 `cuwm.py` owns orchestration and invokes the paper-prompt renderer. The complete
-original prompt sources live in [`prompts/cuwm/paper/`](prompts/cuwm/paper/), with
-provenance and preserved quirks in the [prompt README](prompts/cuwm/README.md).
-`base.py` defines the backend
-protocols, and `types.py` defines the prediction dataclass. Importing `world_models`
-uses only the standard library. Clients in `backends/` encode requests and call
-remote inference APIs. Model loading and GPU execution run on servers.
+prompt templates live in [`../prompts/templates/cuwm/`](../prompts/templates/cuwm/).
+`base.py` defines the backend protocols, and `types.py` defines the prediction dataclass.
+Importing `world_models` uses only the standard library. Clients in `backends/`
+encode requests and call remote inference APIs. Model loading and GPU execution
+run on servers.
 
 ## Python API
 
@@ -77,6 +76,32 @@ request prompt as server metadata. The image stage's existing preservation
 instruction is custom project text, separate from the four canonical paper prompts.
 The three agent-evaluation
 and judge prompts are stored and loadable without an execution pipeline.
+
+## Prompt templates
+
+Executable prompts use the shared `prompts.render(template_name, **context)` API.
+Jinja2 loads `.j2` files from `src/prompts/templates/` through a package loader,
+independently of the working directory. Missing variables raise `UndefinedError`;
+plain-text values, JSON, and XML are not HTML-escaped or recursively rendered.
+
+CUWM templates are named `cuwm/textual_state_transition.j2`,
+`cuwm/image_preservation.j2`, `cuwm/action_option_generation.j2`,
+`cuwm/action_selection.j2`, and `cuwm/transition_judge.j2`. The four paper templates
+retain the complete instructions from
+[arXiv:2602.17365v1, Appendix A.5, pages 27–35](https://arxiv.org/pdf/2602.17365v1#page=27).
+Source-derived hashes and pre-migration output snapshots protect the original
+wording and formatting. The former Markdown listings remain available in
+[Git history](https://github.com/draklowell/active-belief-world-model/tree/d56f354/src/world_models/prompts/cuwm/paper).
+The judge's literal doubled JSON braces are preserved with a Jinja2 raw block.
+The action-selection template accepts
+`instruction`, `image`, and five `predicted_images` markers; its published empty
+action lines remain unchanged. The judge accepts `PRED` and `GT`.
+
+The CUWM facade retains nonblank input validation and the image attachment marker.
+Multimodal message assembly and JSON serialization remain in Python. The Qwen
+tool schema lives in `qwen3vl/tools.json.j2`; JSON encoding protects its string fields.
+Qwen3VLAgent uses the same renderer for its description, system, user, action
+descriptions, and history templates.
 
 ## Configuration
 

@@ -1,0 +1,1 @@
+{% for action in actions %}Step {{ start_step + loop.index0 }}: {{ action }}{% if not loop.last %}{{ '\n' }}{% endif %}{% else %}None{% endfor %}

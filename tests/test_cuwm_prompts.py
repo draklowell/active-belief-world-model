@@ -1,17 +1,14 @@
 import hashlib
 import json
-import re
 from importlib.resources import files
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
-from world_models.prompts import cuwm
-from world_models.prompts.cuwm import (
-    IMAGE_ATTACHMENT_MARKER,
-    load_paper_prompt,
-    render_textual_state_transition,
-)
+from prompts import render
+from world_models import CUWM
+from world_models.cuwm import IMAGE_ATTACHMENT_MARKER
 
 PAPER_PROMPTS = {
     "action_option_generation": "7672842a0ec3e84d62f8ea07add31736351b0760815cc8d573ced40dfa1be61d",
@@ -21,25 +18,54 @@ PAPER_PROMPTS = {
 }
 
 
+PAPER_CONTEXTS = {
+    "action_option_generation": {
+        "instruction": "{instruction}",
+        "a11y": "{a11y}",
+        "actions": "{actions}",
+        "num_options": "{num_options}",
+    },
+    "action_selection": {
+        "instruction": "[Instruction]",
+        "image": "[Current State Screenshot]",
+        "predicted_images": [f"[Predicted Image {index}]" for index in range(1, 6)],
+    },
+    "textual_state_transition": {
+        "app_name": "{app_name}",
+        "image": "{image}",
+        "action": "{action}",
+        "gui_description": "{gui_description}",
+    },
+    "transition_judge": {"PRED": "{PRED}", "GT": "{GT}"},
+}
+
+
+def render_paper_reference(name: str) -> str:
+    """Render original input markers for comparisons with canonical source hashes."""
+    return render(f"cuwm/{name}.j2", **PAPER_CONTEXTS[name])
+
+
 @pytest.mark.parametrize("name", PAPER_PROMPTS)
 def test_complete_paper_prompt_is_a_package_resource(name: str) -> None:
     """Preserve each complete, verified author listing without PDF-only artifacts."""
-    resource = files("world_models").joinpath("prompts", "cuwm", "paper", f"{name}.md")
+    resource = files("prompts").joinpath("templates", "cuwm", f"{name}.j2")
     assert resource.is_file()
-    prompt = load_paper_prompt(name)
+    prompt = render_paper_reference(name)
     assert prompt.strip()
     assert hashlib.sha256(prompt.encode("utf-8")).hexdigest() == PAPER_PROMPTS[name]
-    assert not re.search(r"^\s*(?:2[7-9]|3[0-5]|A\.5(?:\.\d)?)\s*$", prompt, re.MULTILINE)
+    assert not any(
+        line.strip() in {str(page) for page in range(27, 36)} for line in prompt.splitlines()
+    )
     assert "\f" not in prompt
     assert "\\begin{lstlisting}" not in prompt
 
 
 def test_action_generation_retains_all_structured_examples() -> None:
     """Preserve both clicks, typing, dragging, and the terminal example as published."""
-    prompt = load_paper_prompt("action_option_generation")
+    prompt = render_paper_reference("action_option_generation")
     examples = [
         json.loads(example)
-        for example in re.findall(r"```json\n(.*?)\n`{3,4}(?:\n|$)", prompt, re.DOTALL)
+        for example in (block.split("\n```", 1)[0] for block in prompt.split("```json\n")[1:])
     ]
     assert [example["tool_call"]["function"] for example in examples] == [
         "click",
@@ -61,14 +87,14 @@ def test_action_generation_retains_all_structured_examples() -> None:
     assert examples[3]["tool_call"]["args"]["end_coordinate"] == [200, 200]
     assert examples[4]["tool_call"] == {"function": "", "args": {}, "status": "FINISH"}
     assert prompt.count("**Annotated current screenshot**") == 2
-    assert {"instruction", "a11y", "actions", "num_options"} == set(
-        re.findall(r"\{([a-z_][a-z_0-9]*)\}", prompt)
+    assert all(
+        "{" + name + "}" in prompt for name in ("instruction", "a11y", "actions", "num_options")
     )
 
 
 def test_selection_retains_five_options_and_original_field_names() -> None:
     """Preserve all five image references and the original selection schema."""
-    prompt = load_paper_prompt("action_selection")
+    prompt = render_paper_reference("action_selection")
     assert all(f"[Predicted Image {index}]" in prompt for index in range(1, 6))
     assert "[Instruction]" in prompt
     assert "[Current State Screenshot]" in prompt
@@ -80,7 +106,7 @@ def test_selection_retains_five_options_and_original_field_names() -> None:
 
 def test_judge_retains_all_scoring_dimensions_and_rationales() -> None:
     """Preserve the eight scores, three score values, notes, and published brace quirk."""
-    prompt = load_paper_prompt("transition_judge")
+    prompt = render_paper_reference("transition_judge")
     schema = prompt.split("Return JSON with exactly this structure:\n", 1)[1].split(
         "\nNow perform the evaluation.", 1
     )[0]
@@ -115,11 +141,15 @@ def test_render_transition_preserves_the_complete_template() -> None:
     """Substitute the four paper slots without dropping any original instructions."""
     action = '{"function": "click", "args": {"control_label": 15, "button": "left"}}'
     description = "Click accessibility control_label 15 using the left mouse button."
-    prompt = render_textual_state_transition(
-        action, app_name="Microsoft Excel", gui_description=description
+    prompt = render(
+        "cuwm/textual_state_transition.j2",
+        action=action,
+        app_name="Microsoft Excel",
+        gui_description=description,
+        image=IMAGE_ATTACHMENT_MARKER,
     )
     expected = (
-        load_paper_prompt("textual_state_transition")
+        render_paper_reference("textual_state_transition")
         .replace("{app_name}", "Microsoft Excel")
         .replace("{image}", IMAGE_ATTACHMENT_MARKER)
         .replace("{action}", action)
@@ -137,8 +167,12 @@ def test_render_preserves_json_and_placeholder_like_user_text() -> None:
     """Treat inserted action and description values as opaque text in a single pass."""
     action = '{"function": "type", "args": {"keys": "Keep {image} and {app_name}"}}'
     description = "Type the literal text {gui_description} without substitution."
-    prompt = render_textual_state_transition(
-        action, app_name="Microsoft Word", gui_description=description
+    prompt = render(
+        "cuwm/textual_state_transition.j2",
+        action=action,
+        app_name="Microsoft Word",
+        gui_description=description,
+        image=IMAGE_ATTACHMENT_MARKER,
     )
     assert "Action:\n" + action in prompt
     assert "GUI Action Description:\n" + description in prompt
@@ -160,17 +194,7 @@ def test_render_rejects_missing_textual_context(field: str, value: str) -> None:
     values = {"action": "click()", "app_name": "Microsoft Excel", "gui_description": "Click."}
     values[field] = value
     with pytest.raises(ValueError, match=field):
-        render_textual_state_transition(**values)
-
-
-def test_render_rejects_unknown_source_placeholders(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Reject unknown template slots before sending an unresolved instruction to inference."""
-    template = load_paper_prompt("textual_state_transition")
-    monkeypatch.setattr(cuwm, "load_paper_prompt", lambda name: template + "\n{unsupported}")
-    with pytest.raises(ValueError, match="unsupported"):
-        render_textual_state_transition(
-            "click()", app_name="Microsoft Excel", gui_description="Click the control."
-        )
+        CUWM(text_model=Mock(), image_model=Mock()).generate_text_desc(b"screenshot", **values)
 
 
 def test_prompt_loading_is_independent_of_working_directory(
@@ -179,11 +203,4 @@ def test_prompt_loading_is_independent_of_working_directory(
     """Load all canonical sources from package resources outside the repository directory."""
     monkeypatch.chdir(tmp_path)
     for name, digest in PAPER_PROMPTS.items():
-        assert hashlib.sha256(load_paper_prompt(name).encode()).hexdigest() == digest
-
-
-@pytest.mark.parametrize("name", ["../cuwm", "unknown", "textual_state_transition.md"])
-def test_prompt_loading_rejects_unsupported_resource_names(name: str) -> None:
-    """Restrict public resource loading to the four documented paper prompts."""
-    with pytest.raises(ValueError, match="prompt"):
-        load_paper_prompt(name)
+        assert hashlib.sha256(render_paper_reference(name).encode()).hexdigest() == digest

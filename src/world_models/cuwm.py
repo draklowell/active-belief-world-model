@@ -1,6 +1,7 @@
 from world_models.base import ImageTransitionModel, TextTransitionModel
-from world_models.prompts.cuwm import render_textual_state_transition
 from world_models.types import CUWMPrediction
+
+IMAGE_ATTACHMENT_MARKER = "[Current UI screenshot attached as image content]"
 
 
 class CUWM:
@@ -33,8 +34,14 @@ class CUWM:
         Returns:
             Natural-language description of the expected UI transition.
         """
-        prompt = render_textual_state_transition(
-            action, app_name=app_name, gui_description=gui_description
+        from prompts import render
+
+        context = {"action": action, "app_name": app_name, "gui_description": gui_description}
+        for name, value in context.items():
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"CUWM requires a nonempty {name}.")
+        prompt = render(
+            "cuwm/textual_state_transition.j2", image=IMAGE_ATTACHMENT_MARKER, **context
         )
         return self._text_model.generate(screenshot, prompt, system_prompt="")
 
@@ -48,11 +55,9 @@ class CUWM:
         Returns:
             PNG-encoded image of the predicted next GUI state.
         """
-        prompt = (
-            f"{text_description}\n\n"
-            "Preserve the layout, text, icons, colors, and all other GUI elements "
-            "unrelated to this transition."
-        )
+        from prompts import render
+
+        prompt = render("cuwm/image_preservation.j2", text_description=text_description)
         return self._image_model.generate(screenshot, prompt)
 
     def predict(
