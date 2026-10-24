@@ -28,8 +28,7 @@ Research project on active belief world models for computer-use agents, evaluate
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.0 or newer,
 then install the system dependencies for your OS before setting up the project.
-These libraries support source builds of Pillow and pygame, which are pulled in by
-`desktop-env`.
+These commands install build tools and image libraries for native dependency builds.
 
 ### Ubuntu
 
@@ -42,12 +41,7 @@ sudo apt-get install --no-install-recommends -y \
   pkg-config \
   libjpeg-dev \
   zlib1g-dev \
-  libsdl2-dev \
-  libsdl2-image-dev \
-  libsdl2-mixer-dev \
-  libsdl2-ttf-dev \
-  libfreetype6-dev \
-  libportmidi-dev
+  libfreetype6-dev
 ```
 
 ### macOS
@@ -63,7 +57,7 @@ xcode-select --install
 Install [Homebrew](https://brew.sh/), then install the native build dependencies:
 
 ```bash
-brew install pkg-config jpeg zlib sdl2 sdl2_image sdl2_mixer sdl2_ttf freetype portmidi
+brew install pkg-config jpeg zlib freetype
 ```
 
 ### Project setup
