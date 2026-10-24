@@ -177,18 +177,6 @@ def build_computer_use_tool(
     )
 
 
-def list_computer_use_actions(computer_use_tool: dict) -> list[str]:
-    """List the action names accepted by a `computer_use` tool definition.
-
-    Args:
-        computer_use_tool: Tool definition returned by build_computer_use_tool.
-
-    Returns:
-        Supported values of the required `action` argument.
-    """
-    return computer_use_tool["function"]["parameters"]["properties"]["action"]["enum"]
-
-
 @backoff.on_exception(
     backoff.constant,
     (

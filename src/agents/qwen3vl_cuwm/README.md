@@ -76,35 +76,60 @@ transition, propagate and fail the task.
 
 ## Validation
 
-Both policy responses are validated before their content is used.
+Both policy responses are validated with JSON Schema (draft 2020-12, through
+`jsonschema.validate`) before their content is used. In both cases the first
+JSON array or object in the response is decoded, so a surrounding Markdown code
+fence is tolerated; a response without one is rejected.
 
-`parse_candidates` validates the candidate response:
+`parse_candidates` validates each element of the candidate array against
+`build_option_schema` and keeps at most the first `N` valid elements, in
+generation order. An option is an object with an optional string `thoughts`, a
+string `action` containing a non-whitespace character, and a `tool_call` whose
+`name` is `computer_use`. Its `arguments` must match all of the following:
 
-1. The first JSON array in the response is extracted, so a surrounding Markdown
-   code fence is tolerated. A response without a decodable array yields no
-   candidates.
-2. Each element must be an object with a nonempty string `action` and a
-   `tool_call` object whose `name` is `computer_use` and whose `arguments`
-   object contains an `action` from the `computer_use` enumeration (`key`,
-   `type`, `mouse_move`, `left_click`, `left_click_drag`, `right_click`,
-   `middle_click`, `double_click`, `scroll`, `wait`, or `terminate`). The
-   allowed names are read from the `action` enumeration of the rendered
-   `qwen3vl/tools.json.j2` tool definition, the same definition shown to the
-   policy. Elements failing any check are logged and discarded. A missing `thoughts` field is replaced with an empty string.
-3. The valid candidates are truncated to the first `N` in generation order.
+1. The `parameters` schema of the rendered `qwen3vl/tools.json.j2` tool
+   definition, the same definition shown to the policy, with
+   `additionalProperties: false`. This fixes the argument names, their JSON
+   types (booleans are not numbers), the required `action` and its enumeration
+   (`key`, `type`, `mouse_move`, `left_click`, `left_click_drag`, `right_click`,
+   `middle_click`, `double_click`, `scroll`, `wait`, `terminate`), and the
+   `status` enumeration (`success`, `failure`).
 
-Only validated candidates are simulated by CUWM. If none remain, CUWM and the
+2. Value constraints: `keys` is a nonempty array of strings with a
+   non-whitespace character, `text` is not empty, `time` is not negative, and
+   `coordinate` is exactly `[x, y]` with `0 <= x < width` and `0 <= y < height`.
+   The coordinate frame is the one stated to the policy: 1000x1000 for relative
+   coordinates, or the processed screenshot size for absolute coordinates.
+
+3. One `if`/`then` rule per action requiring the arguments its PyAutoGUI
+   conversion uses, which the tool definition only states in prose:
+
+   | Action                                                                                       | Required arguments |
+   | -------------------------------------------------------------------------------------------- | ------------------ |
+   | `key`                                                                                        | `keys`             |
+   | `type`                                                                                       | `text`             |
+   | `mouse_move`, `left_click`, `left_click_drag`, `right_click`, `middle_click`, `double_click` | `coordinate`       |
+   | `scroll`                                                                                     | `pixels`           |
+   | `terminate`                                                                                  | `status`           |
+   | `wait`                                                                                       | none               |
+
+Invalid elements are logged with the schema error message and discarded. Only
+validated candidates are simulated by CUWM. If none remain, CUWM and the
 selection request are skipped and the raw candidate response is returned.
 
-`parse_selection` validates the selection response: the first JSON object must
-decode and contain an integer `action_idx` between 1 and the number of
-validated candidates.
+`parse_selection` validates the selection object against a schema requiring an
+`integer` `action_idx` between 1 and the number of validated candidates.
+JSON Schema integers exclude `true` and `false`, so a boolean is rejected
+instead of being read as index 1 or 0. A whole-number float such as `2.0` is a
+JSON Schema integer and selects option 2.
 
 A step without a validated candidate or selection returns no commands and
 leaves the history unchanged, so the next step observes the same screenshot, as
-the base Qwen3-VL agent does after a malformed response. Validation checks the
-tool call structure and the action name, but not the other arguments such as
-`coordinate`, `keys`, or `text`.
+the base Qwen3-VL agent does after a malformed response. Arguments outside the
+tool definition are rejected even when the base agent's converter reads them,
+such as `duration` for `left_click_drag`, because the policy is never told about
+them. A coordinate-free click, which the base agent executes at the current
+cursor position, is rejected because CUWM cannot simulate an unknown target.
 
 One step costs `N + 2` chat completions and `N` image edits.
 

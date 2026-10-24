@@ -8,7 +8,6 @@ from agents.qwen3vl_common import (
     ceil_by_factor,
     convert_tool_call_to_pyautogui,
     floor_by_factor,
-    list_computer_use_actions,
     prepare_screenshot,
     process_image,
     round_by_factor,
@@ -65,7 +64,7 @@ class TestComputerUseTool:
         assert "resolution is 1000x1000" in relative["function"]["description"]
         assert "resolution is 1920x1088" in absolute["function"]["description"]
         assert relative["function"]["name"] == "computer_use"
-        assert list_computer_use_actions(relative) == [
+        assert relative["function"]["parameters"]["properties"]["action"]["enum"] == [
             "key",
             "type",
             "mouse_move",

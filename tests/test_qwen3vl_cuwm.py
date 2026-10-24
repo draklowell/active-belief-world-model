@@ -6,12 +6,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from jinja2 import UndefinedError
+from jsonschema import Draft202012Validator
 from PIL import Image
 
 from agents import qwen3vl_cuwm
 from agents.base import Agent
-from agents.qwen3vl_common import build_computer_use_tool, list_computer_use_actions
-from agents.qwen3vl_cuwm import Qwen3VLCUWMAgent
+from agents.qwen3vl_common import build_computer_use_tool
+from agents.qwen3vl_cuwm import Qwen3VLCUWMAgent, build_option_schema
 from prompts import render
 from world_models import CUWM
 
@@ -123,9 +124,9 @@ def agent(
 
 
 @pytest.fixture
-def supported_actions() -> list[str]:
-    """List the action names of the rendered `computer_use` tool definition."""
-    return list_computer_use_actions(build_computer_use_tool("relative", 1000, 1000))
+def computer_use_tool() -> dict:
+    """Render the relative-coordinate `computer_use` tool definition."""
+    return build_computer_use_tool("relative", 1000, 1000)
 
 
 @pytest.fixture
@@ -300,7 +301,16 @@ def test_history_includes_executed_actions_within_the_window(
 
 @pytest.mark.parametrize(
     "selection_response",
-    ["not json", '{"action_idx": 3}', '{"action_idx": 0}', '{"thought": "missing"}'],
+    [
+        "not json",
+        '{"action_idx": 3}',
+        '{"action_idx": 0}',
+        '{"action_idx": true}',
+        '{"action_idx": false}',
+        '{"action_idx": "1"}',
+        '{"action_idx": 1.5}',
+        '{"thought": "missing"}',
+    ],
 )
 def test_invalid_selection_executes_nothing(
     agent: Qwen3VLCUWMAgent, observation: dict, selection_response: str
@@ -385,7 +395,7 @@ def test_unparseable_candidates_skip_simulation(
 
 
 def test_parse_candidates_skips_malformed_options_and_truncates(
-    agent: Qwen3VLCUWMAgent, supported_actions: list[str]
+    agent: Qwen3VLCUWMAgent, computer_use_tool: dict
 ) -> None:
     """Keep only valid `computer_use` candidates, up to the requested number."""
     options = [
@@ -393,9 +403,125 @@ def test_parse_candidates_skips_malformed_options_and_truncates(
         {"action": "", "tool_call": CANDIDATES[0]["tool_call"]},
         {"action": "Fly.", "tool_call": {"name": "computer_use", "arguments": {"action": "fly"}}},
         {"action": "Click.", "tool_call": {"name": "computer_use", "arguments": {}}},
+        {
+            "action": "Click.",
+            "tool_call": {"name": "computer_use", "arguments": {"action": "left_click"}},
+        },
         "not an object",
         *CANDIDATES,
         CANDIDATES[0],
     ]
     response = "```json\n" + json.dumps(options) + "\n```"
-    assert agent.parse_candidates(response, supported_actions) == CANDIDATES
+    assert agent.parse_candidates(response, computer_use_tool, (1000, 1000)) == CANDIDATES
+
+
+def option_with(arguments: dict) -> dict:
+    """Wrap tool call arguments in a described `computer_use` option."""
+    return {"action": "Act.", "tool_call": {"name": "computer_use", "arguments": arguments}}
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"action": "key", "keys": ["ctrl", "s"]},
+        {"action": "type", "text": "hello\n"},
+        {"action": "mouse_move", "coordinate": [0, 0]},
+        {"action": "left_click", "coordinate": [999, 999.5]},
+        {"action": "left_click_drag", "coordinate": [10, 20]},
+        {"action": "right_click", "coordinate": [1, 2]},
+        {"action": "middle_click", "coordinate": [1, 2]},
+        {"action": "double_click", "coordinate": [1, 2]},
+        {"action": "scroll", "pixels": -5},
+        {"action": "wait"},
+        {"action": "wait", "time": 2.5},
+        {"action": "terminate", "status": "failure"},
+    ],
+)
+def test_valid_arguments_for_every_action(arguments: dict, computer_use_tool: dict) -> None:
+    """Accept each action with the arguments its PyAutoGUI conversion uses."""
+    schema = build_option_schema(computer_use_tool, (1000, 1000))
+    assert Draft202012Validator(schema).is_valid(option_with(arguments))
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {},
+        {"action": "fly"},
+        {"action": ["left_click"]},
+        {"action": "left_click"},
+        {"action": "left_click", "coordinate": [1, 2], "button": "left"},
+        {"action": "left_click", "coordinate": [1]},
+        {"action": "left_click", "coordinate": [1000, 2]},
+        {"action": "left_click", "coordinate": [-1, 2]},
+        {"action": "left_click", "coordinate": ["1", 2]},
+        {"action": "left_click", "coordinate": [True, 2]},
+        {"action": "left_click", "coordinate": "1, 2"},
+        {"action": "left_click_drag", "coordinate": [1, 2], "duration": 1},
+        {"action": "key"},
+        {"action": "key", "keys": []},
+        {"action": "key", "keys": ["ctrl", " "]},
+        {"action": "key", "keys": "ctrl+s"},
+        {"action": "type"},
+        {"action": "type", "text": ""},
+        {"action": "scroll"},
+        {"action": "scroll", "pixels": "5"},
+        {"action": "scroll", "pixels": True},
+        {"action": "wait", "time": -1},
+        {"action": "terminate"},
+        {"action": "terminate", "status": "done"},
+    ],
+)
+def test_invalid_arguments_are_rejected(arguments: dict, computer_use_tool: dict) -> None:
+    """Reject arguments that the tool definition or the PyAutoGUI conversion cannot use."""
+    schema = build_option_schema(computer_use_tool, (1000, 1000))
+    assert not Draft202012Validator(schema).is_valid(option_with(arguments))
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        {"tool_call": {"name": "computer_use", "arguments": {"action": "wait"}}},
+        {"action": " ", "tool_call": {"name": "computer_use", "arguments": {"action": "wait"}}},
+        {"action": "Wait.", "tool_call": {"name": "other", "arguments": {"action": "wait"}}},
+        {"action": "Wait.", "tool_call": {"name": "computer_use"}},
+        {"action": "Wait.", "thoughts": 1, "tool_call": CANDIDATES[0]["tool_call"]},
+        "not an object",
+    ],
+)
+def test_malformed_options_are_rejected(option: object, computer_use_tool: dict) -> None:
+    """Require a described `computer_use` tool call with string thoughts."""
+    schema = build_option_schema(computer_use_tool, (1000, 1000))
+    assert not Draft202012Validator(schema).is_valid(option)
+
+
+def test_whole_number_selection_selects_that_option(agent: Qwen3VLCUWMAgent) -> None:
+    """Accept JSON whole numbers such as 2.0 as integer indices."""
+    assert agent.parse_selection('{"action_idx": 2.0}', 2) == 1
+
+
+def test_absolute_coordinates_are_bounded_by_the_processed_screenshot(
+    agent: Qwen3VLCUWMAgent, observation: dict
+) -> None:
+    """Bound absolute coordinates by the processed screenshot shown to the policy."""
+    agent.coordinate_type = "absolute"
+    candidates = [
+        {
+            "action": f"Click at {x}.",
+            "tool_call": {
+                "name": "computer_use",
+                "arguments": {"action": "left_click", "coordinate": [x, 10]},
+            },
+        }
+        for x in (991, 992)
+    ]
+    responses = [
+        completion(json.dumps(candidates)),
+        completion('{"action_idx": 1, "thought": "Only valid option."}'),
+    ]
+    with patch.object(agent._client.chat.completions, "create", side_effect=responses):
+        response, actions = agent.predict("Click near the edge", observation)
+    assert [candidate["action"] for candidate in json.loads(response)["candidates"]] == [
+        "Click at 991."
+    ]
+    assert actions == [f"pyautogui.click({int(991 * 1000 / 992)}, {int(10 * 1000 / 992)})"]

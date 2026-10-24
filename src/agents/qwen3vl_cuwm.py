@@ -3,6 +3,7 @@ import json
 import logging
 import re
 
+import jsonschema
 import openai
 from decouple import config
 
@@ -11,7 +12,6 @@ from agents.qwen3vl_common import (
     build_computer_use_tool,
     build_image_content,
     convert_tool_call_to_pyautogui,
-    list_computer_use_actions,
     prepare_screenshot,
     process_image,
     request_chat_completion,
@@ -22,6 +22,19 @@ from world_models.config import build_cuwm, load_cuwm_config
 logger = logging.getLogger(__name__)
 
 PROMPT_SET = "cuwm-qwen3vl"
+RELATIVE_COORDINATE_SPACE = (1000, 1000)
+REQUIRED_ARGUMENTS = {
+    "key": ["keys"],
+    "type": ["text"],
+    "mouse_move": ["coordinate"],
+    "left_click": ["coordinate"],
+    "left_click_drag": ["coordinate"],
+    "right_click": ["coordinate"],
+    "middle_click": ["coordinate"],
+    "double_click": ["coordinate"],
+    "scroll": ["pixels"],
+    "terminate": ["status"],
+}
 
 
 def format_action(candidate: dict) -> str:
@@ -38,6 +51,62 @@ def format_action(candidate: dict) -> str:
         action=candidate["action"],
         tool_call=json.dumps(candidate["tool_call"]),
     )
+
+
+def build_option_schema(computer_use_tool: dict, coordinate_space: tuple[int, int]) -> dict:
+    """Build the JSON schema of one action option proposed by the policy.
+
+    Argument names, types, enumerations, and the required `action` come from the tool definition
+    shown to the policy. The schema adds the arguments each action's PyAutoGUI conversion uses,
+    nonempty keys and text, a nonnegative wait time, and coordinates inside the coordinate space.
+
+    Args:
+        computer_use_tool: Tool definition shown to the policy.
+        coordinate_space: Width and height of the coordinate frame stated to the policy.
+
+    Returns:
+        JSON schema (draft 2020-12) of an option with `thoughts`, `action`, and `tool_call`.
+    """
+    argument_constraints = {
+        "keys": {"minItems": 1, "items": {"type": "string", "pattern": r"\S"}},
+        "text": {"minLength": 1},
+        "coordinate": {
+            "prefixItems": [
+                {"type": "number", "minimum": 0, "exclusiveMaximum": bound}
+                for bound in coordinate_space
+            ],
+            "minItems": 2,
+            "items": False,
+        },
+        "time": {"minimum": 0},
+    }
+    action_requirements = [
+        {"if": {"properties": {"action": {"const": action}}}, "then": {"required": required}}
+        for action, required in REQUIRED_ARGUMENTS.items()
+    ]
+    arguments_schema = computer_use_tool["function"]["parameters"] | {"additionalProperties": False}
+    return {
+        "type": "object",
+        "required": ["action", "tool_call"],
+        "properties": {
+            "thoughts": {"type": "string"},
+            "action": {"type": "string", "pattern": r"\S"},
+            "tool_call": {
+                "type": "object",
+                "required": ["name", "arguments"],
+                "properties": {
+                    "name": {"const": "computer_use"},
+                    "arguments": {
+                        "allOf": [
+                            arguments_schema,
+                            {"properties": argument_constraints},
+                            *action_requirements,
+                        ]
+                    },
+                },
+            },
+        },
+    }
 
 
 class Qwen3VLCUWMAgent(Agent):
@@ -175,48 +244,45 @@ class Qwen3VLCUWMAgent(Agent):
             {"role": "user", "content": content},
         ]
 
-    def parse_candidates(self, response: str, supported_actions: list[str]) -> list[dict]:
+    def parse_candidates(
+        self, response: str, computer_use_tool: dict, coordinate_space: tuple[int, int]
+    ) -> list[dict]:
         """Extract valid candidate actions from the JSON array returned by the policy.
 
-        Elements without a string `action` and a `computer_use` tool call whose `action`
-        argument names a supported action are skipped. At most `num_options` candidates are kept.
+        Elements that do not match build_option_schema are logged and skipped. At most
+        `num_options` candidates are kept.
 
         Args:
             response: Raw completion text of the action option generation request.
-            supported_actions: Action names accepted by the `computer_use` tool definition.
+            computer_use_tool: Tool definition shown to the policy.
+            coordinate_space: Width and height of the coordinate frame stated to the policy.
 
         Returns:
             Candidates with `thoughts`, `action`, and `tool_call` keys, in generation order.
         """
         match = re.search(r"\[.*\]", response, re.DOTALL)
-        if match is None:
-            logger.error("Candidate response contains no JSON array")
-            return []
         try:
-            options = json.loads(match[0])
+            options = json.loads(match[0] if match else "")
         except json.JSONDecodeError as error:
             logger.error("Failed to parse candidate actions: %s", error)
             return []
 
+        option_schema = build_option_schema(computer_use_tool, coordinate_space)
         candidates = []
-        for option in options if isinstance(options, list) else []:
-            tool_call = option.get("tool_call") if isinstance(option, dict) else None
-            is_valid = (
-                isinstance(tool_call, dict)
-                and tool_call.get("name") == "computer_use"
-                and isinstance(tool_call.get("arguments"), dict)
-                and tool_call["arguments"].get("action") in supported_actions
-                and isinstance(option.get("action"), str)
-                and bool(option["action"].strip())
-            )
-            if not is_valid:
-                logger.warning("Skipping malformed candidate action: %s", option)
+        for option in options:
+            try:
+                jsonschema.validate(option, option_schema)
+            except jsonschema.ValidationError as error:
+                logger.warning("Skipping invalid candidate action %s: %s", option, error.message)
                 continue
             candidates.append(
                 {
-                    "thoughts": str(option.get("thoughts", "")),
+                    "thoughts": option.get("thoughts", ""),
                     "action": option["action"].strip(),
-                    "tool_call": {"name": "computer_use", "arguments": tool_call["arguments"]},
+                    "tool_call": {
+                        "name": "computer_use",
+                        "arguments": option["tool_call"]["arguments"],
+                    },
                 }
             )
         return candidates[: self.num_options]
@@ -232,16 +298,23 @@ class Qwen3VLCUWMAgent(Agent):
             Zero-based candidate index, or None when the response has no valid `action_idx`.
         """
         match = re.search(r"\{.*\}", response, re.DOTALL)
+        selection_schema = {
+            "type": "object",
+            "required": ["action_idx"],
+            "properties": {
+                "action_idx": {"type": "integer", "minimum": 1, "maximum": num_candidates}
+            },
+        }
         try:
-            selection = json.loads(match[0]) if match else None
+            selection = json.loads(match[0] if match else "")
+            jsonschema.validate(selection, selection_schema)
         except json.JSONDecodeError as error:
             logger.error("Failed to parse action selection: %s", error)
             return None
-        action_index = selection.get("action_idx") if isinstance(selection, dict) else None
-        if not isinstance(action_index, int) or not 1 <= action_index <= num_candidates:
-            logger.error("Invalid action selection: %s", response)
+        except jsonschema.ValidationError as error:
+            logger.error("Invalid action selection: %s", error.message)
             return None
-        return action_index - 1
+        return int(selection["action_idx"]) - 1
 
     def predict(self, instruction: str, observation: dict) -> tuple[str, list[str]]:
         """Generate candidates, simulate them with CUWM, and return the selected action.
@@ -271,9 +344,10 @@ class Qwen3VLCUWMAgent(Agent):
             temperature=self.temperature,
             top_p=self.top_p,
         )
-        candidates = self.parse_candidates(
-            generation_response, list_computer_use_actions(computer_use_tool)
+        coordinate_space = (
+            processed_size if self.coordinate_type == "absolute" else RELATIVE_COORDINATE_SPACE
         )
+        candidates = self.parse_candidates(generation_response, computer_use_tool, coordinate_space)
         if not candidates:
             return generation_response, []
 
