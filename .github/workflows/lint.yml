@@ -1,4 +1,4 @@
-name: lint
+name: CI
 
 on:
   push:
@@ -55,3 +55,39 @@ jobs:
 
       - name: mdformat --check
         run: git ls-files -z '*.md' | xargs -0 uv run --locked --no-sync mdformat --check
+
+  tests:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: src
+      OPENAI_BASE_URL: http://127.0.0.1:1/v1
+      OPENAI_API_KEY: test-key
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            pkg-config \
+            libjpeg-dev \
+            zlib1g-dev \
+            libfreetype6-dev
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install Python dependencies
+        run: uv sync --locked
+
+      - name: pytest
+        run: uv run --locked --no-sync pytest
