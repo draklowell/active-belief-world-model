@@ -1,12 +1,11 @@
-```text
 You are an AI assistant tasked with selecting the best next action in an Office application (e.g., Microsoft Word, Excel, or PowerPoint) based on a GUI screenshot and several candidate action outcomes.
 
 The task instruction is:
-[Instruction]
+{{ instruction }}
 
 The current screenshot is: See the image below.
 
-[Current State Screenshot]
+{{ image }}
 
 You are given a list of action options, each with:
 - action: the structured action command to be executed
@@ -34,27 +33,26 @@ Here are the candidate action options:
 Action Option 1:
  - Action:
  - Predicted State Image: see below.
-[Predicted Image 1]
+{{ predicted_images[0] }}
 
 Action Option 2:
  - Action:
  - Predicted State Image: see below.
-[Predicted Image 2]
+{{ predicted_images[1] }}
 
 Action Option 3:
  - Action:
  - Predicted State Image: see below.
-[Predicted Image 3]
+{{ predicted_images[2] }}
 
 Action Option 4:
  - Action:
  - Predicted State Image: see below.
-[Predicted Image 4]
+{{ predicted_images[3] }}
 
 Action Option 5:
  - Action:
  - Predicted State Image: see below.
-[Predicted Image 5]
+{{ predicted_images[4] }}
 
 Now, analyze all options and return only the selected 'action_idx' and a short 'thought' in JSON format. 'action_idx' MUST be an integer between 1 and 5 (inclusive). Do NOT output any text outside the JSON object.
-```

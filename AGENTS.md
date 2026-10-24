@@ -38,6 +38,8 @@ logging.basicConfig(
 )
 ```
 
+13. Keep imports at module scope. Use imports inside functions, methods, or other local scopes only for optional functionality that requires optional dependencies.
+
 ## Naming Conventions
 
 1. Use snake_case for variables, functions, and methods. Use PascalCase for classes. Use UPPER_SNAKE_CASE for constants. Prefix internal/private attributes and methods with a single underscore (e.g., \_internal_state).
@@ -55,6 +57,13 @@ logging.basicConfig(
 5. Keep secrets in environment variables or `.env`, read through `decouple`. Configuration may name a secret variable, such as `api_key_env = "OPENAI_API_KEY"`, but must not contain its value.
 6. Document required tables, supported backends, and defaults in the component's README. Keep configuration filenames, loader behavior, CLI defaults, and examples consistent.
 7. Keep world-model orchestration, domain prompts, and workflows in the world-model facade. Backend adapters send prepared requests to inference APIs, preferably OpenAI-compatible endpoints. Model loading and GPU execution belong on the inference server.
+
+## Prompt Conventions
+
+1. Store new and updated model prompts as `.j2` files under `src/prompts/templates/<component>/`, following the existing CUWM and Qwen3VL templates. Use descriptive snake_case filenames and `.json.j2` for tool schemas. Keep one template source instead of duplicating prompt text in Python or Markdown.
+2. Render prompts with `from prompts import render` and `render("component/template.j2", **context)`. Reuse the shared Jinja2 environment with `StrictUndefined` and package loading. Do not introduce custom string substitution, regex placeholder parsing, separate template environments, or silent fallback prompts.
+3. Supply required context explicitly from the agent or world-model orchestration. Keep message assembly, image attachments, API calls, and JSON parsing and serialization in Python. Use `tojson` for values inserted into JSON templates and raw blocks when literal content contains Jinja2 syntax.
+4. Preserve the complete wording, examples, and formatting of paper prompts. Add or update rendering tests for required variables, literal braces and JSON, and expected output compatibility. Ensure new templates are included in package data and load independently of the working directory.
 
 ## Docstrings
 

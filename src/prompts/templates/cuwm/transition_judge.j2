@@ -1,4 +1,3 @@
-```text
 You are an impartial LLM-as-a-Judge. Your task is to grade a model prediction (PRED) against the ground truth (GT) for describing the ``Next UI Screenshot'' of an Office application (e.g., Microsoft Word).
 
 You MUST evaluate the following aspects independently:
@@ -41,7 +40,7 @@ Output format requirements:
 
 
 Return JSON with exactly this structure:
-{{
+{% raw %}{{
   "scores": {{
     "app_name": <0|0.5|1>,
     "user_action": <0|0.5|1>,
@@ -62,17 +61,16 @@ Return JSON with exactly this structure:
     "navigation_area": "<one short sentence rationale>",
     "status_bar": "<one short sentence rationale>"
   }}
-}}
+}}{% endraw %}
 
 Now perform the evaluation.
 
 PRED:
 <<<
-{PRED}
+{{ PRED }}
 >>>
 
 GT:
 <<<
-{GT}
+{{ GT }}
 >>>
-```

@@ -1,3 +1,4 @@
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -40,8 +41,6 @@ class TestImageHelpers:
 
     def test_process_image(self) -> None:
         image = Image.new("RGB", (1920, 1080), color="blue")
-        from io import BytesIO
-
         buf = BytesIO()
         image.save(buf, format="PNG")
         encoded = process_image(buf.getvalue())
@@ -169,8 +168,6 @@ class TestQwen3VLAgent:
 
     def test_predict_flow(self, agent: Qwen3VLAgent) -> None:
         image = Image.new("RGB", (1000, 1000), color="white")
-        from io import BytesIO
-
         buf = BytesIO()
         image.save(buf, format="PNG")
         obs = {"screenshot": buf.getvalue()}

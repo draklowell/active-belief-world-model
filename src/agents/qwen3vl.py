@@ -14,6 +14,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
 
 from agents.base import Agent
+from prompts import render
 
 logger = logging.getLogger(__name__)
 
@@ -165,125 +166,23 @@ class Qwen3VLAgent(Agent):
         self.screenshots = []
 
     def _build_description_prompt(self, processed_width: int, processed_height: int) -> str:
-        resolution = (
-            f"* The screen's resolution is {processed_width}x{processed_height}."
-            if self.coordinate_type == "absolute"
-            else "* The screen's resolution is 1000x1000."
+        return render(
+            "qwen3vl/description.j2",
+            coordinate_type=self.coordinate_type,
+            processed_width=processed_width,
+            processed_height=processed_height,
         )
-        lines = [
-            "Use a mouse and keyboard to interact with a computer, and take screenshots.",
-            (
-                "* This is an interface to a desktop GUI. You do not have access to a terminal "
-                "or applications menu. You must click on desktop icons to start applications."
-            ),
-            (
-                "* Some applications may take time to start or process actions, so you may need "
-                "to wait and take successive screenshots to see the results of your actions. "
-                "E.g. if you click on Firefox and a window doesn't open, try wait and taking "
-                "another screenshot."
-            ),
-            resolution,
-            (
-                "* Whenever you intend to move the cursor to click on an element like an icon, "
-                "you should consult a screenshot to determine the coordinates of the element "
-                "before moving the cursor."
-            ),
-            (
-                "* If you tried clicking on a program or link but it failed to load even after "
-                "waiting, try adjusting your cursor position so that the tip of the cursor "
-                "visually falls on the element that you want to click."
-            ),
-            (
-                "* Make sure to click any buttons, links, icons, etc with the cursor tip in "
-                "the center of the element. Don't click boxes on their edges unless asked."
-            ),
-        ]
-        return "\n".join(lines)
 
     def _build_system_prompt(self, description_prompt: str) -> str:
-        action_descriptions = (
-            "* `key`: Performs key down presses on the arguments passed in order, "
-            "then performs key releases in reverse order.\n"
-            "* `type`: Type a string of text on the keyboard.\n"
-            "* `mouse_move`: Move cursor to a specified (x, y) pixel coordinate.\n"
-            "* `left_click`: Click the left mouse button at (x, y).\n"
-            "* `left_click_drag`: Click and drag cursor to (x, y).\n"
-            "* `right_click`: Click the right mouse button at (x, y).\n"
-            "* `middle_click`: Click the middle mouse button at (x, y).\n"
-            "* `double_click`: Double-click left mouse button at (x, y).\n"
-            "* `scroll`: Performs a scroll of the mouse scroll wheel.\n"
-            "* `wait`: Wait specified seconds for the change to happen.\n"
-            "* `terminate`: Terminate the current task and report completion status.\n"
+        action_descriptions = render("qwen3vl/action_descriptions.j2")
+        tools_def = json.loads(
+            render(
+                "qwen3vl/tools.json.j2",
+                description_prompt=description_prompt,
+                action_descriptions=action_descriptions,
+            )
         )
-        tools_def = {
-            "type": "function",
-            "function": {
-                "name_for_human": "computer_use",
-                "name": "computer_use",
-                "description": description_prompt,
-                "parameters": {
-                    "properties": {
-                        "action": {
-                            "description": action_descriptions,
-                            "enum": [
-                                "key",
-                                "type",
-                                "mouse_move",
-                                "left_click",
-                                "left_click_drag",
-                                "right_click",
-                                "middle_click",
-                                "double_click",
-                                "scroll",
-                                "wait",
-                                "terminate",
-                            ],
-                            "type": "string",
-                        },
-                        "keys": {"description": "Required only by `action=key`.", "type": "array"},
-                        "text": {
-                            "description": "Required only by `action=type`.",
-                            "type": "string",
-                        },
-                        "coordinate": {
-                            "description": "The x,y coordinates for mouse actions.",
-                            "type": "array",
-                        },
-                        "pixels": {"description": "The amount of scrolling.", "type": "number"},
-                        "time": {"description": "The seconds to wait.", "type": "number"},
-                        "status": {
-                            "description": "The status of the task.",
-                            "type": "string",
-                            "enum": ["success", "failure"],
-                        },
-                    },
-                    "required": ["action"],
-                    "type": "object",
-                },
-                "args_format": "Format the arguments as a JSON object.",
-            },
-        }
-        return (
-            "# Tools\n\n"
-            "You may call one or more functions to assist with the user query.\n\n"
-            "You are provided with function signatures within <tools></tools> XML tags:\n"
-            f"<tools>\n{json.dumps(tools_def)}\n</tools>\n\n"
-            "For each function call, return a json object with function name and arguments "
-            "within <tool_call></tool_call> XML tags:\n"
-            "<tool_call>\n"
-            '{"name": <function-name>, "arguments": <args-json-object>}\n'
-            "</tool_call>\n\n"
-            "# Response format\n\n"
-            "Response format for every step:\n"
-            "1) Action: a short imperative describing what to do in the UI.\n"
-            "2) A single <tool_call>...</tool_call> block containing only the JSON: "
-            '{"name": <function-name>, "arguments": <args-json-object>}.\n\n'
-            "Rules:\n"
-            "- Output exactly in the order: Action, <tool_call>.\n"
-            "- Be brief: one sentence for Action.\n"
-            "- Do not output anything else outside those parts.\n"
-            "- If finishing, use action=terminate in the tool call."
-        )
+        return render("qwen3vl/system.j2", tool_definition=json.dumps(tools_def))
 
     def _build_messages(
         self,
@@ -292,11 +191,8 @@ class Qwen3VLAgent(Agent):
         system_prompt: str,
         previous_actions_str: str,
     ) -> list[dict]:
-        instruction_prompt = (
-            "Please generate the next move according to the UI screenshot, "
-            f"instruction and previous actions.\n\n"
-            f"Instruction: {instruction}\n\n"
-            f"Previous actions:\n{previous_actions_str}"
+        instruction_prompt = render(
+            "qwen3vl/user.j2", instruction=instruction, previous_actions_str=previous_actions_str
         )
         messages: list[dict] = [
             {"role": "system", "content": [{"type": "text", "text": system_prompt}]}
@@ -556,10 +452,11 @@ class Qwen3VLAgent(Agent):
 
         current_step = len(self.actions)
         history_start_index = max(0, current_step - self.history_n)
-        previous_actions = [
-            f"Step {i + 1}: {self.actions[i]}" for i in range(history_start_index, current_step)
-        ]
-        previous_actions_str = "\n".join(previous_actions) if previous_actions else "None"
+        previous_actions_str = render(
+            "qwen3vl/history.j2",
+            actions=self.actions[history_start_index:current_step],
+            start_step=history_start_index + 1,
+        )
 
         description_prompt = self._build_description_prompt(processed_width, processed_height)
         system_prompt = self._build_system_prompt(description_prompt)
