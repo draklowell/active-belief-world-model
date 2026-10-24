@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import tomllib
 from pathlib import Path
 from types import ModuleType
 from typing import cast
@@ -12,12 +13,19 @@ import pytest
 from agents.base import Agent
 from scripts import benchmark
 
+AGENT_CONFIG_TOML = """model = "qwen3-vl"
+temperature = 0
+top_p = 0.9
+max_tokens = 32768
+coord = "relative"
+add_thought_prefix = false
+actions = ["DONE"]
+"""
 AGENT_CONFIG = {
     "model": "qwen3-vl",
     "temperature": 0,
     "top_p": 0.9,
     "max_tokens": 32768,
-    "stop_token": None,
     "coord": "relative",
     "add_thought_prefix": False,
     "actions": ["DONE"],
@@ -67,7 +75,7 @@ def settings(args: argparse.Namespace) -> benchmark.SettingsDict:
 def args(tmp_path: Path) -> argparse.Namespace:
     """Provide benchmark settings using temporary output paths."""
     return argparse.Namespace(
-        agent_config=tmp_path / "agent.json",
+        agent_config=tmp_path / "agent.toml",
         agent_path="tests.test_benchmark.DummyAgent",
         provider_name="docker",
         password="test-password",
@@ -109,7 +117,7 @@ def test_parse_args(monkeypatch: pytest.MonkeyPatch) -> None:
         [
             "benchmark.py",
             "--agent-config",
-            "agent.json",
+            "agent.toml",
             "--agent-path",
             "agents.example.ExampleAgent",
             "--provider-name",
@@ -133,7 +141,7 @@ def test_parse_args(monkeypatch: pytest.MonkeyPatch) -> None:
         ],
     )
     settings = benchmark.parse_args()
-    assert settings.agent_config == Path("agent.json")
+    assert settings.agent_config == Path("agent.toml")
     assert settings.agent_path == "agents.example.ExampleAgent"
     assert settings.provider_name == "aws"
     assert settings.password == "secret"
@@ -164,7 +172,7 @@ def test_parse_args_rejects_invalid_limits(
         [
             "benchmark.py",
             "--agent-config",
-            "a.json",
+            "a.toml",
             "--agent-path",
             "a.A",
             "--tasks",
@@ -294,7 +302,7 @@ def test_main_distributes_tasks_across_workers(
     args: argparse.Namespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Load configuration unchanged and assign each selected task to one worker."""
-    args.agent_config.write_text(json.dumps(AGENT_CONFIG))
+    args.agent_config.write_text(AGENT_CONFIG_TOML)
     args.tasks.write_text(json.dumps({"chrome": ["a", "b", "c"]}))
     task_dir = args.tasks.parent / "examples/chrome"
     task_dir.mkdir(parents=True)
@@ -323,7 +331,7 @@ def test_main_skips_environment_for_empty_manifest(
     args: argparse.Namespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Finish empty selections without allocating VMs or dividing by zero."""
-    args.agent_config.write_text(json.dumps(AGENT_CONFIG))
+    args.agent_config.write_text(AGENT_CONFIG_TOML)
     args.tasks.write_text("{}")
     monkeypatch.setattr(benchmark, "parse_args", lambda: args)
     executor = MagicMock()
@@ -332,11 +340,23 @@ def test_main_skips_environment_for_empty_manifest(
     executor.assert_not_called()
 
 
-def test_main_rejects_non_object_configuration(
+def test_main_rejects_malformed_configuration(
     args: argparse.Namespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Reject invalid agent configuration before creating workers."""
-    args.agent_config.write_text("[]")
+    args.agent_config.write_text('model = "qwen3-vl"\nstop_token = null\n')
     monkeypatch.setattr(benchmark, "parse_args", lambda: args)
-    with pytest.raises(ValueError, match="JSON object"):
+    executor = MagicMock()
+    monkeypatch.setattr(benchmark, "ProcessPoolExecutor", executor)
+    with pytest.raises(tomllib.TOMLDecodeError):
         benchmark.main()
+    executor.assert_not_called()
+
+
+@pytest.mark.parametrize("name", ["agent-qwen3vl", "agent-qwen3vl-cuwm"])
+def test_repository_agent_configurations_are_toml(name: str) -> None:
+    """Keep the supplied agent configurations loadable by the benchmark."""
+    with (Path("config") / f"{name}.toml").open("rb") as config_file:
+        settings = tomllib.load(config_file)
+    assert settings["model"] == "qwen3-vl"
+    assert settings["coordinate_type"] == "relative"

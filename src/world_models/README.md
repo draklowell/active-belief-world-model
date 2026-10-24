@@ -4,9 +4,9 @@ CUWM predicts one hypothetical GUI transition without executing the candidate ac
 It reproduces the two-stage factorization in
 [Guan et al., section 3.1 and Figure 2](https://arxiv.org/abs/2602.17365):
 
-1. CUWM renders the complete Appendix A.5.2 prompt using the supplied application
-   and structured action context, then calls the textual backend to predict the
-   immediate UI changes.
+1. CUWM renders the transition prompt of its prompt set, by default the complete
+   Appendix A.5.2 prompt, using the supplied application and structured action
+   context, then calls the textual backend to predict the immediate UI changes.
 2. CUWM prepares an edit instruction with preservation requirements, then calls the
    visual backend using the original screenshot.
 
@@ -14,8 +14,11 @@ Both stages receive encoded screenshot `bytes`. The textual result is a plain
 string, and the visual result is PNG-encoded `bytes`. `CUWM.predict` returns a
 `CUWMPrediction` containing `text_description` and `predicted_screenshot`.
 
-`cuwm.py` owns orchestration and invokes the paper-prompt renderer. The complete
+`cuwm.py` owns orchestration and invokes the prompt renderer. The complete paper
 prompt templates live in [`../prompts/templates/cuwm/`](../prompts/templates/cuwm/).
+The desktop prompt set used by the Qwen3-VL CUWM agent lives in
+[`../prompts/templates/cuwm-qwen3vl/`](../prompts/templates/cuwm-qwen3vl/), and the
+[CUWM changes report](cuwm/README.md) documents how it differs from the paper.
 `base.py` defines the backend protocols, and `types.py` defines the prediction dataclass.
 Importing `world_models` loads the shared Jinja2 prompt renderer. Clients in `backends/`
 encode requests and call remote inference APIs. Model loading and GPU execution
@@ -47,18 +50,21 @@ prediction = cuwm.predict(
 Path("predicted_next_state.png").write_bytes(prediction.predicted_screenshot)
 ```
 
-Use `cuwm.generate_text_desc(screenshot, action, app_name=..., gui_description=...)` or
+Use `cuwm.generate_text_desc(screenshot, action, gui_description=..., app_name=...)` or
 `cuwm.generate_image(screenshot, text_description)` to run stages independently.
-`generate_text_desc` and `predict` require both context values as keyword
-arguments. This intentionally replaces the previous two-input API because the
-original research prompt requires an application name and a function-level
-description of the candidate action and its arguments. A GUI description is not
-a screenshot caption. Keep the complete structured action representation,
-including targeting arguments. Missing keywords or blank textual inputs fail;
-CUWM does not infer an application or fabricate missing context.
+`generate_text_desc` and `predict` require `gui_description` as a keyword
+argument; `app_name` is an optional keyword argument. The paper prompt set
+requires an application name and a function-level description of the candidate
+action and its arguments, so omitting `app_name` with it raises a Jinja2
+`UndefinedError` before inference. The `cuwm-qwen3vl` prompt set identifies the
+application from the screenshot and ignores a supplied `app_name`. A GUI
+description is not a screenshot caption. Keep the complete structured action
+representation, including targeting arguments. Blank textual inputs fail; CUWM
+does not fabricate missing context.
 
-For dependency injection, construct `CUWM(text_model=..., image_model=...)` with
-objects implementing these contracts:
+For dependency injection, construct
+`CUWM(text_model=..., image_model=..., prompt_set="cuwm")` with objects
+implementing these contracts:
 
 - `TextTransitionModel.generate(screenshot, prompt, *, system_prompt) -> str`
 - `ImageTransitionModel.generate(screenshot, prompt) -> bytes`
@@ -97,6 +103,13 @@ The action-selection template accepts
 `instruction`, `image`, and five `predicted_images` markers; its published empty
 action lines remain unchanged. The judge accepts `PRED` and `GT`.
 
+CUWM renders `<prompt_set>/textual_state_transition.j2` and
+`<prompt_set>/image_preservation.j2`, where `prompt_set` names a template directory.
+The default `cuwm` set holds the paper prompts. The `cuwm-qwen3vl` set holds a
+desktop adaptation of the transition prompt without `app_name`, and its image
+template includes `cuwm/image_preservation.j2` unchanged. The same directory holds
+the prompts of the [Qwen3-VL CUWM agent](../agents/qwen3vl_cuwm/README.md).
+
 The CUWM facade retains nonblank input validation and the image attachment marker.
 Multimodal message assembly and JSON serialization remain in Python. The Qwen
 tool schema lives in `qwen3vl/tools.json.j2`; JSON encoding protects its string fields.
@@ -114,6 +127,10 @@ contains a `backend` identifier and that client's constructor options.
 | ------------- | ------------------------ | --------------------------- |
 | `text_model`  | `openai_compatible_text` | `OpenAITextModel`           |
 | `image_model` | `stable_diffusion_image` | `StableDiffusionImageModel` |
+
+The optional root key `prompt_set` selects the prompt template directory, for
+example `prompt_set = "cuwm-qwen3vl"` placed before the tables. Omit it to use the
+paper prompts in `cuwm`.
 
 OpenAI compatibility describes the API communication contract. It does not
 require OpenAI-hosted models. `OpenAITextModel` uses Chat Completions, while
@@ -233,8 +250,10 @@ uv run python scripts/run_cuwm.py \
 
 Supply an existing screenshot. The script writes `transition.txt` before visual
 inference, followed by `predicted_next_state.png`. Add `--text-only` to produce
-only the description. `--app-name` and `--gui-description` are required in both
-modes because both perform textual transition generation. Use a fresh output
+only the description. `--gui-description` is required in both modes because
+both perform textual transition generation. `--app-name` is optional on the
+command line but required by the default paper prompt set; omit it only with a
+configuration whose `prompt_set` infers the application, such as `cuwm-qwen3vl`. Use a fresh output
 directory for each run to distinguish
 new predictions from earlier outputs. For source-tree development without an
 active editable installation, prefix commands with `PYTHONPATH=src`.

@@ -4,7 +4,7 @@ from typing import Any
 
 from world_models.backends.openai_text import OpenAITextModel
 from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
-from world_models.cuwm import CUWM
+from world_models.cuwm import CUWM, PAPER_PROMPT_SET
 
 
 def load_cuwm_config(path: str | Path) -> dict[str, Any]:
@@ -14,7 +14,8 @@ def load_cuwm_config(path: str | Path) -> dict[str, Any]:
         path: Path to the CUWM configuration file.
 
     Returns:
-        Mapping with text_model and image_model sections containing backend names and options.
+        Mapping with text_model and image_model sections containing backend names and options,
+        and an optional root prompt_set naming the prompt template directory.
     """
     with Path(path).open("rb") as config_file:
         settings = tomllib.load(config_file)
@@ -31,7 +32,8 @@ def build_cuwm(settings: dict[str, Any]) -> CUWM:
         settings: Mapping of backend names and constructor options from load_cuwm_config.
 
     Returns:
-        CUWM with separate OpenAI-compatible text and stable-diffusion.cpp image clients.
+        CUWM with separate OpenAI-compatible text and stable-diffusion.cpp image clients, using
+        the configured prompt set or the paper prompts when prompt_set is omitted.
     """
     text_settings = settings["text_model"].copy()
     image_settings = settings["image_model"].copy()
@@ -44,4 +46,5 @@ def build_cuwm(settings: dict[str, Any]) -> CUWM:
     return CUWM(
         text_model=OpenAITextModel(**text_settings),
         image_model=StableDiffusionImageModel(**image_settings),
+        prompt_set=settings.get("prompt_set", PAPER_PROMPT_SET),
     )

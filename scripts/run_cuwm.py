@@ -24,8 +24,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--app-name",
-        required=True,
-        help="Application shown in the screenshot, such as Microsoft Excel.",
+        help=(
+            "Application shown in the screenshot, such as Microsoft Excel. Required by the "
+            "paper prompt set and ignored by prompt sets that infer the application."
+        ),
     )
     parser.add_argument(
         "--gui-description",

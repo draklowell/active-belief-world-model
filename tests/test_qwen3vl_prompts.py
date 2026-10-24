@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from agents import qwen3vl
 from agents.qwen3vl import Qwen3VLAgent
+from agents.qwen3vl_common import build_computer_use_tool
 from prompts import render
 
 SNAPSHOTS = json.loads(
@@ -34,10 +36,10 @@ def test_agent_prompts_and_messages_match_pre_migration_snapshot(snapshot: dict)
         actions=agent.actions[snapshot["history_start"] :],
         start_step=snapshot["history_start"] + 1,
     )
-    description = agent._build_description_prompt(1280, 720)
-    system = agent._build_system_prompt(description)
+    computer_use_tool = build_computer_use_tool(snapshot["coordinate_type"], 1280, 720)
+    system = agent._build_system_prompt(computer_use_tool)
     assert history == snapshot["previous_actions"]
-    assert description == snapshot["description"]
+    assert computer_use_tool["function"]["description"] == snapshot["description"]
     assert system == snapshot["system"]
     assert (
         agent._build_messages(snapshot["instruction"], "current-image", system, history)
@@ -60,12 +62,12 @@ def test_predict_preserves_history_and_action_execution_contract(
         ]
     )
 
-    def capture_request(messages: list[dict]) -> str:
+    def capture_request(client: object, messages: list[dict], **options: object) -> str:
         """Capture the real assembled messages at the network boundary."""
         requests.append(messages)
         return next(responses)
 
-    monkeypatch.setattr(agent, "call_llm", capture_request)
+    monkeypatch.setattr(qwen3vl, "request_chat_completion", capture_request)
     buffer = BytesIO()
     Image.new("RGB", (64, 64), "white").save(buffer, format="PNG")
     observation = {"screenshot": buffer.getvalue()}

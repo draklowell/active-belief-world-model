@@ -12,12 +12,15 @@ from unittest.mock import Mock
 import httpx2
 import openai
 import pytest
+from jinja2 import UndefinedError
 from PIL import Image, UnidentifiedImageError
 
+from prompts import render
 from scripts import run_cuwm
 from world_models import CUWM, CUWMPrediction
 from world_models.backends.openai_text import OpenAITextModel
 from world_models.backends.stable_diffusion_image import StableDiffusionImageModel
+from world_models.config import build_cuwm
 
 CANDIDATE_ACTION = (
     '{"function": "click", "args": ' '{"control_label": 15, "coordinate": null, "button": "left"}}'
@@ -589,35 +592,95 @@ def test_image_model_rejects_nonpositive_geometry(
         )
 
 
-@pytest.mark.parametrize("missing_option", ["--app-name", "--gui-description"])
-def test_cli_requires_the_paper_context(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], missing_option: str
+def test_cli_requires_the_action_description(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Explain missing paper inputs before loading files or constructing model clients."""
-    arguments = {
-        "--screenshot": "missing.png",
-        "--action": CANDIDATE_ACTION,
-        "--app-name": "Microsoft Excel",
-        "--gui-description": GUI_DESCRIPTION,
-        "--output-dir": "unused-output",
-    }
-    arguments.pop(missing_option)
-    monkeypatch.setattr(
-        sys, "argv", ["run_cuwm.py", *(value for pair in arguments.items() for value in pair)]
-    )
+    """Explain a missing action description before loading files or constructing clients."""
+    arguments = [
+        "run_cuwm.py",
+        "--screenshot",
+        "missing.png",
+        "--action",
+        CANDIDATE_ACTION,
+        "--app-name",
+        "Microsoft Excel",
+        "--output-dir",
+        "unused-output",
+    ]
+    monkeypatch.setattr(sys, "argv", arguments)
     with pytest.raises(SystemExit) as error:
         run_cuwm.main()
     assert error.value.code == 2
-    assert missing_option in capsys.readouterr().err
+    assert "--gui-description" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("method_name", ["generate_text_desc", "predict"])
-@pytest.mark.parametrize("missing_argument", ["app_name", "gui_description"])
-def test_facade_requires_explicit_paper_context(method_name: str, missing_argument: str) -> None:
-    """Reject omitted context through both public textual inference entry points."""
+def test_facade_requires_an_explicit_action_description(method_name: str) -> None:
+    """Reject an omitted description through both public textual inference entry points."""
     cuwm = CUWM(text_model=Mock(), image_model=Mock())
-    context = {"app_name": "Microsoft Excel", "gui_description": GUI_DESCRIPTION}
-    context.pop(missing_argument)
     method = getattr(cuwm, method_name)
-    with pytest.raises(TypeError, match=missing_argument):
-        method(b"original screenshot", CANDIDATE_ACTION, **context)
+    with pytest.raises(TypeError, match="gui_description"):
+        method(b"original screenshot", CANDIDATE_ACTION, app_name="Microsoft Excel")
+
+
+@pytest.mark.parametrize("method_name", ["generate_text_desc", "predict"])
+def test_paper_prompts_require_an_application_name(method_name: str) -> None:
+    """Fail through the strict template instead of rendering the paper prompt without it."""
+    text_model = Mock()
+    cuwm = CUWM(text_model=text_model, image_model=Mock())
+    method = getattr(cuwm, method_name)
+    with pytest.raises(UndefinedError, match="app_name"):
+        method(b"original screenshot", CANDIDATE_ACTION, gui_description=GUI_DESCRIPTION)
+    text_model.generate.assert_not_called()
+
+
+def test_desktop_prompt_set_predicts_without_an_application_name() -> None:
+    """Render the cuwm-qwen3vl transition and image prompts when no application is supplied."""
+    text_model = Mock()
+    text_model.generate.return_value = "Chrome opens."
+    image_model = Mock()
+    image_model.generate.return_value = b"predicted screenshot"
+    cuwm = CUWM(text_model=text_model, image_model=image_model, prompt_set="cuwm-qwen3vl")
+    prediction = cuwm.predict(b"screenshot", CANDIDATE_ACTION, gui_description="Open Chrome.")
+    transition_prompt = text_model.generate.call_args.args[1]
+    assert "World Model assistant for desktop applications" in transition_prompt
+    assert "Office" not in transition_prompt
+    assert "Open Chrome." in transition_prompt
+    assert image_model.generate.call_args.args[1] == render(
+        "cuwm/image_preservation.j2", text_description="Chrome opens."
+    )
+    assert prediction == CUWMPrediction("Chrome opens.", b"predicted screenshot")
+
+
+def test_desktop_prompt_set_ignores_a_supplied_application_name() -> None:
+    """Accept an application name for callers that share code with the paper prompt set."""
+    text_model = Mock()
+    text_model.generate.return_value = "Chrome opens."
+    cuwm = CUWM(text_model=text_model, image_model=Mock(), prompt_set="cuwm-qwen3vl")
+    cuwm.generate_text_desc(
+        b"screenshot", CANDIDATE_ACTION, gui_description="Open Chrome.", app_name="LibreOffice Calc"
+    )
+    assert "LibreOffice Calc" not in text_model.generate.call_args.args[1]
+
+
+@pytest.mark.parametrize("settings, prompt_set", [({}, "cuwm"), ({"prompt_set": "x"}, "x")])
+def test_build_cuwm_selects_the_configured_prompt_set(
+    monkeypatch: pytest.MonkeyPatch, settings: dict, prompt_set: str
+) -> None:
+    """Use the paper prompts unless the configuration names another template directory."""
+    monkeypatch.setenv("CUWM_TEST_API_KEY", "test-key")
+    backends = {
+        "text_model": {
+            "backend": "openai_compatible_text",
+            "model": "text-model",
+            "base_url": "https://text.test/v1",
+            "api_key_env": "CUWM_TEST_API_KEY",
+        },
+        "image_model": {
+            "backend": "stable_diffusion_image",
+            "model": "image-model",
+            "base_url": "https://image.test/v1",
+            "api_key_env": "CUWM_TEST_API_KEY",
+        },
+    }
+    assert build_cuwm(backends | settings)._prompt_set == prompt_set

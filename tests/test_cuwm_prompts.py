@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+from jinja2 import UndefinedError
 
 from prompts import render
 from world_models import CUWM
@@ -204,3 +205,33 @@ def test_prompt_loading_is_independent_of_working_directory(
     monkeypatch.chdir(tmp_path)
     for name, digest in PAPER_PROMPTS.items():
         assert hashlib.sha256(render_paper_reference(name).encode()).hexdigest() == digest
+
+
+DESKTOP_CONTEXT = {"image": "{image}", "action": "{action}", "gui_description": "{gui_description}"}
+
+
+def test_desktop_transition_keeps_the_paper_instructions_without_an_application() -> None:
+    """Infer the application visually while keeping the paper's transition instructions."""
+    paper_prompt = render_paper_reference("textual_state_transition")
+    desktop_prompt = render("cuwm-qwen3vl/textual_state_transition.j2", **DESKTOP_CONTEXT)
+    assert "{app_name}" in paper_prompt
+    assert "app_name" not in desktop_prompt
+    assert "Office" not in desktop_prompt
+    shared_sections = [
+        "Your task is to predict and describe the likely appearance of the Next UI Screenshot",
+        "Current UI Screenshot:\n{image}\n\nAction:\n{action}",
+        "GUI Action Description:\n{gui_description}",
+        "Only describe changed parts; for unchanged elements, state explicitly",
+        "Do not include reasoning, internal thoughts, or references to the images",
+        "Output a single paragraph of vivid, precise visual description",
+    ]
+    assert all(section in paper_prompt for section in shared_sections)
+    assert all(section in desktop_prompt for section in shared_sections)
+
+
+@pytest.mark.parametrize("missing", DESKTOP_CONTEXT)
+def test_desktop_transition_requires_every_slot(missing: str) -> None:
+    """Reject a missing transition slot through Jinja2 StrictUndefined."""
+    context = {name: value for name, value in DESKTOP_CONTEXT.items() if name != missing}
+    with pytest.raises(UndefinedError, match=missing):
+        render("cuwm-qwen3vl/textual_state_transition.j2", **context)

@@ -7,6 +7,7 @@ import logging
 import os
 import sys
 import tempfile
+import tomllib
 from concurrent.futures import ProcessPoolExecutor
 from importlib import import_module
 from multiprocessing import get_context
@@ -73,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     """Parse benchmark settings, leaving model settings in the agent configuration."""
     parser = argparse.ArgumentParser(description="Benchmark a screenshot agent on OSWorld tasks.")
     parser.add_argument(
-        "--agent-config", type=Path, required=True, help="Agent configuration JSON."
+        "--agent-config", type=Path, required=True, help="Agent configuration TOML."
     )
     parser.add_argument("--agent-path", required=True, help="Import path to an Agent subclass.")
     parser.add_argument(
@@ -238,7 +239,7 @@ def run_tasks(
     Args:
         settings: Benchmark settings.
         agent_class: Agent subclass to instantiate with the configuration dictionary.
-        agent_config: Agent settings loaded from JSON without modification.
+        agent_config: Agent settings loaded from TOML without modification.
         tasks: Domain, task ID, and task configuration triples assigned to this worker.
         experiment_id: The ID of the MLflow experiment.
 
@@ -334,9 +335,8 @@ def main() -> None:
     mlflow_enabled = init_mlflow(args.mlflow)
 
     agent_class = load_agent_class(args.agent_path)
-    agent_config = json.loads(args.agent_config.read_text(encoding="utf-8"))
-    if not isinstance(agent_config, dict):
-        raise ValueError("agent-config must contain a JSON object")
+    with args.agent_config.open("rb") as agent_config_file:
+        agent_config = tomllib.load(agent_config_file)
     manifest = json.loads(args.tasks.read_text(encoding="utf-8"))
 
     tasks = [

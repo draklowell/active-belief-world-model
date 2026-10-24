@@ -1,0 +1,6 @@
+model = "qwen3-vl"
+max_tokens = 32768
+top_p = 0.9
+temperature = 0.0
+history_n = 4
+coordinate_type = "relative"

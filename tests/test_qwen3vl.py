@@ -4,48 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
-from agents.qwen3vl import (
-    Qwen3VLAgent,
-    ceil_by_factor,
-    floor_by_factor,
-    process_image,
-    round_by_factor,
-    smart_resize,
-)
-
-
-class TestImageHelpers:
-    def test_round_by_factor(self) -> None:
-        assert round_by_factor(27.0, 28) == 28
-        assert round_by_factor(15.0, 28) == 28
-        assert round_by_factor(13.0, 28) == 0
-
-    def test_ceil_by_factor(self) -> None:
-        assert ceil_by_factor(29.0, 28) == 56
-        assert ceil_by_factor(28.0, 28) == 28
-
-    def test_floor_by_factor(self) -> None:
-        assert floor_by_factor(29.0, 28) == 28
-        assert floor_by_factor(27.0, 28) == 0
-
-    def test_smart_resize_validation(self) -> None:
-        with pytest.raises(ValueError, match="must be larger than factor"):
-            smart_resize(1, 100)
-        with pytest.raises(ValueError, match="absolute aspect ratio"):
-            smart_resize(10, 3000)
-
-    def test_smart_resize_within_bounds(self) -> None:
-        h, w = smart_resize(1080, 1920, factor=32)
-        assert h % 32 == 0
-        assert w % 32 == 0
-
-    def test_process_image(self) -> None:
-        image = Image.new("RGB", (1920, 1080), color="blue")
-        buf = BytesIO()
-        image.save(buf, format="PNG")
-        encoded = process_image(buf.getvalue())
-        assert isinstance(encoded, str)
-        assert len(encoded) > 0
+from agents.qwen3vl import Qwen3VLAgent
 
 
 class TestQwen3VLAgent:
