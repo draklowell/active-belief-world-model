@@ -31,12 +31,116 @@ from one snapshot. Subsets and approximate sizes: `meta` 19 MB, `ubuntu` 282 MB,
 ubuntu tasks using HTTP range requests against the pinned revision, verifies every image with
 CRC32, and writes `data/raw/agentnet/ubuntu_images_manifest.csv` with sha256 digests.
 
+## CUWM transitions
+
+CUWM is trained on transitions `(s_t, a_t, s_t+1)`: a screenshot, the action taken on it, and
+the screenshot that follows. `scripts/build_cuwm_transitions.py` builds them from the pinned
+ubuntu JSONL and the screenshot archive index, both under `data/raw/agentnet/`, without
+downloading screenshots. It then draws the sample that receives textual transition labels:
+
+```bash
+uv run python scripts/build_cuwm_transitions.py --config config/cuwm-data.toml
+uv run python scripts/download_agentnet_images.py \
+  --transitions data/interim/cuwm/sample.parquet \
+  --manifest data/interim/cuwm/images_manifest.csv
+```
+
+The second command fetches the current and next screenshots of every sampled transition into
+`data/raw/agentnet/images/`. With the supplied configuration that is 6,436 screenshots, about
+5.8 GB compressed.
+
+### Configuration
+
+`config/cuwm-data.toml` holds every option. All keys are required.
+
+| Key                 | Supplied value                        | Meaning                                                            |
+| ------------------- | ------------------------------------- | ------------------------------------------------------------------ |
+| `seed`              | `2026`                                | Seed of the split and sample shuffles                              |
+| `osworld_tasks`     | `"evaluation_examples/test_all.json"` | OSWorld 1.0 manifest checked for overlap                           |
+| `overlap_threshold` | `0.8`                                 | Minimum content-token containment of a near copy                   |
+| `output_dir`        | `"data/interim/cuwm"`                 | Directory of the outputs                                           |
+| `[split_fractions]` | `train`, `validation`, `test`         | Ordered share of instruction groups per split, sum 1               |
+| `[sample_sizes]`    | 2,876, 98 and 339                     | Transitions to sample per split, same names as `[split_fractions]` |
+| `[domain_weights]`  | One weight per AgentNet domain        | Relative share of each domain in every split's sample              |
+
+The sample sizes are the training, validation and test sizes of the CUWM paper (Guan et al.,
+Table 6). The domain weights are the task counts of the OSWorld 1.0 `test_all.json` manifest for
+the ten application domains. `infeasible` and `error_correction` have no OSWorld domain and
+receive the weight 26, the number of OSWorld 1.0 tasks in `test_infeasible.json`. A domain
+without a weight is not sampled.
+
+### Construction
+
+1. **Pairing.** Each step forms a transition with the step whose `index` follows directly.
+
+2. **Actions.** The AgentNet `code` is parsed with `ast`, never executed, and converted to the
+   `computer_use` arguments of the Qwen3-VL agent, including the `action` name. Coordinates are
+   fractions of the screen and become `round(fraction * 999)`, the inverse of the agent's
+   `adjust_coordinates`. Every converted action must pass the agent's option schema,
+   `build_option_schema`, with the AgentNet `action` text as the description.
+
+   | AgentNet code                         | Tool call arguments                            |
+   | ------------------------------------- | ---------------------------------------------- |
+   | `pyautogui.click(x, y)`               | `left_click` with `coordinate`                 |
+   | `pyautogui.doubleClick(x, y)`         | `double_click` with `coordinate`               |
+   | `pyautogui.rightClick(x, y)`          | `right_click` with `coordinate`                |
+   | `pyautogui.moveTo(x, y)`              | `mouse_move` with `coordinate`                 |
+   | `pyautogui.write(message)`            | `type` with `text`                             |
+   | `pyautogui.press(key)`                | `key` with `keys = [key]`                      |
+   | `pyautogui.hotkey(keys)`              | `key` with `keys`                              |
+   | `moveTo` calls, then `scroll` calls   | `scroll`, last `coordinate`, summed `pixels`   |
+   | `computer.wait()`                     | `wait`                                         |
+   | `computer.terminate(status)`          | `terminate` with `status`                      |
+   | `moveTo` then `dragTo`, `tripleClick` | Unsupported, no equivalent in the action space |
+
+   A `left_click_drag` only names its end point and starts at the current cursor, which in
+   AgentNet is not at the drag start, so drags are excluded. Scroll amounts are copied
+   unchanged because both AgentNet and the agent pass them directly to `pyautogui.scroll`.
+
+3. **Exclusions.** Each step receives the first matching reason in this order, or none when it
+   is eligible: `osworld_overlap`, `last_step`, `non_consecutive_index`, `missing_image` (absent
+   from the archive index), `unsupported_action`, `invalid_action`, `terminate`,
+   `unchanged_screenshot` (equal CRC32 and size of both screenshots), and `duplicate_transition`
+   (the screenshot and action of an earlier eligible transition).
+
+4. **OSWorld overlap.** Instructions are normalized (NFKC, lowercase, a leading `TaskN:` prefix
+   removed, punctuation dropped). An AgentNet task overlaps when any of `instruction`,
+   `natural_language_task` or `actual_task` equals an OSWorld 1.0 instruction, contains one of at
+   least 30 characters verbatim, or contains at least `overlap_threshold` of its content tokens
+   (words outside a stopword list, at least three). Overlapping tasks are excluded as a whole.
+
+5. **Splits.** Tasks are grouped by normalized instruction, shuffled with the seed inside each
+   domain, and cut at the cumulative `[split_fractions]` shares. A task and its duplicates stay in one
+   split, and every trajectory belongs to exactly one split.
+
+6. **Sample.** For every split, its `[sample_sizes]` count is divided across domains by the largest remainder
+   method, and eligible transitions are drawn uniformly within each split and domain. No
+   success filter is applied, because a failed trajectory still records real screen changes;
+   `judge_status` (`completed`, `failed` or `unscored`) is kept for analysis.
+
+### Outputs
+
+| File in `data/interim/cuwm/` | Contents                                                             |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `transitions.parquet`        | Every step with its split and exclusion reason                       |
+| `sample.parquet`             | Sampled eligible transitions to annotate                             |
+| `osworld_overlap.csv`        | Excluded tasks, best OSWorld match, exactness and containment        |
+| `build_info.json`            | Revision, settings, exclusion counts, sample coverage and image size |
+| `images_manifest.csv`        | Downloaded screenshots of the sample with sha256 digests             |
+
+Both Parquet files have one row per step with `task_id`, `domain`, `instruction`, `index`,
+`image`, `next_image`, `code`, `tool_arguments` (JSON `computer_use` arguments),
+`action_name`, `gui_description` (the AgentNet `action` text), `reflection` (AgentNet's own
+comparison of the two screenshots, null on about a third of the sample), `judge_status`, the
+CRC32 and size of both screenshots, `exclusion_reason` and `split`. The `tool_arguments` keep the
+`action` argument so that either tool call layout of the agent can be rendered from them.
+
 ## Layout
 
 | Path                 | Contents                                                         |
 | -------------------- | ---------------------------------------------------------------- |
 | `data/raw/agentnet/` | Downloaded JSONL files, `REVISION.txt`, image index and manifest |
-| `data/interim/`      | Intermediate forms of the raw data, currently empty              |
+| `data/interim/cuwm/` | CUWM transitions, their sample, overlap report and build summary |
 | `data/processed/`    | Model-ready data, currently empty                                |
 
 Exploration of the data is in `notebooks/01_agentnet_eda.ipynb` and

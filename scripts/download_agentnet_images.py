@@ -5,13 +5,17 @@ Only the bytes of the selected images are fetched with HTTP range requests, usin
 zip central directory of the pinned dataset revision (see data/raw/agentnet/REVISION.txt).
 Every image is CRC32 verified. The sample is a deterministic function of the revision,
 --tasks and --seed, and the resulting file list with sha256 digests is written to
-data/raw/agentnet/ubuntu_images_manifest.csv. Rerunning skips images already on disk.
+data/raw/agentnet/ubuntu_images_manifest.csv. With --transitions, the current and next
+screenshots of the transitions in that Parquet file are fetched instead of a task sample.
+Rerunning skips images already on disk.
 """
 
 import argparse
 import hashlib
 import logging
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import httpx
 import polars as pl
@@ -29,6 +33,13 @@ from agentnet import (
     segment_url,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+    stream=sys.stdout,
+    force=True,
+)
 logger = logging.getLogger(__name__)
 
 
@@ -57,7 +68,7 @@ def sample_tasks(tasks: pl.DataFrame, n_tasks: int, seed: int) -> pl.DataFrame:
 
 
 def main() -> None:
-    """Download screenshots of a seeded task sample and write the manifest of their digests.
+    """Download screenshots of a task sample or of transitions and write their digest manifest.
 
     The zip index is cached after the first run, and images already on disk are not fetched again.
     """
@@ -65,8 +76,13 @@ def main() -> None:
     parser.add_argument("--tasks", type=int, default=100)
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument(
+        "--transitions",
+        type=Path,
+        help="Parquet file with task_id, domain, image and next_image columns to fetch instead",
+    )
+    parser.add_argument("--manifest", type=Path, default=IMAGE_MANIFEST_FILE)
     args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     commit = pinned_commit()
     with httpx.Client(
@@ -80,22 +96,29 @@ def main() -> None:
             index.write_csv(IMAGE_INDEX_FILE)
         last_disk = int(index.select(pl.col("disk").max()).item())
 
-        steps = (
-            scan_jsonl(DATA_DIR / SUBSET_FILES["ubuntu"])
-            .select("task_id", "domain", "traj")
-            .explode("traj")
-            .select("task_id", "domain", pl.col("traj").struct.field("image").alias("name"))
-            .collect()
-        )
-        tasks = sample_tasks(steps.select("task_id", "domain").unique(), args.tasks, args.seed)
-        images = (
-            steps.join(tasks.select("task_id"), on="task_id")
-            .join(index, on="name")
-            .sort("task_id", "name")
-        )
+        if args.transitions:
+            steps = (
+                pl.read_parquet(args.transitions)
+                .unpivot(["image", "next_image"], index=["task_id", "domain"], value_name="name")
+                .select("task_id", "domain", "name")
+                .unique()
+            )
+            selection = {"source": str(args.transitions)}
+        else:
+            steps = (
+                scan_jsonl(DATA_DIR / SUBSET_FILES["ubuntu"])
+                .select("task_id", "domain", "traj")
+                .explode("traj")
+                .select("task_id", "domain", pl.col("traj").struct.field("image").alias("name"))
+                .collect()
+            )
+            tasks = sample_tasks(steps.select("task_id", "domain").unique(), args.tasks, args.seed)
+            steps = steps.join(tasks.select("task_id"), on="task_id")
+            selection = {"seed": args.seed, "requested_tasks": args.tasks}
+        images = steps.join(index, on="name").sort("task_id", "name")
         logger.info(
             "Selected %d tasks, %d steps, %d unique images, %.1f MB compressed",
-            tasks.height,
+            images["task_id"].n_unique(),
             images.height,
             images["name"].n_unique(),
             images.unique("name").select(pl.col("compressed_bytes").sum() / 1e6).item(),
@@ -129,13 +152,11 @@ def main() -> None:
         unique.select("name").with_columns(pl.Series("sha256", digests)), on="name"
     ).with_columns(
         pl.lit(commit).alias("revision"),
-        pl.lit(args.seed).alias("seed"),
-        pl.lit(args.tasks).alias("requested_tasks"),
+        *[pl.lit(value).alias(name) for name, value in selection.items()],
     )
-    manifest.write_csv(IMAGE_MANIFEST_FILE)
-    logger.info(
-        "Wrote %d images to %s and manifest %s", unique.height, IMAGES_DIR, IMAGE_MANIFEST_FILE
-    )
+    args.manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_csv(args.manifest)
+    logger.info("Wrote %d images to %s and manifest %s", unique.height, IMAGES_DIR, args.manifest)
 
 
 if __name__ == "__main__":
