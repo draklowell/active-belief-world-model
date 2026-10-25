@@ -240,8 +240,9 @@ class Qwen3VLCUWMAgent(Agent):
     ) -> list[dict]:
         """Extract valid candidate actions from the JSON array returned by the policy.
 
-        Elements that do not match build_option_schema are logged and skipped. At most
-        `num_options` candidates are kept.
+        Elements that do not match build_option_schema are logged and skipped. An element whose
+        tool call equals an earlier candidate's tool call is skipped, so each distinct action is
+        simulated once. At most `num_options` candidates are kept.
 
         Args:
             response: Raw completion text of the action option generation request.
@@ -266,14 +267,19 @@ class Qwen3VLCUWMAgent(Agent):
             except jsonschema.ValidationError as error:
                 logger.warning("Skipping invalid candidate action %s: %s", option, error.message)
                 continue
+            tool_call = {
+                "name": option["tool_call"]["name"],
+                "arguments": option["tool_call"]["arguments"],
+            }
+            # O(n^2), but n is small, so simplicity is preferred
+            if any(candidate["tool_call"] == tool_call for candidate in candidates):
+                logger.info("Skipping duplicate candidate tool call %s", tool_call)
+                continue
             candidates.append(
                 {
                     "thoughts": option.get("thoughts", ""),
                     "action": option["action"].strip(),
-                    "tool_call": {
-                        "name": option["tool_call"]["name"],
-                        "arguments": option["tool_call"]["arguments"],
-                    },
+                    "tool_call": tool_call,
                 }
             )
         return candidates[: self.num_options]

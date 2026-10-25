@@ -86,8 +86,8 @@ JSON array or object in the response is decoded, so a surrounding Markdown code
 fence is tolerated; a response without one is rejected.
 
 `parse_candidates` validates each element of the candidate array against
-`build_option_schema` and keeps at most the first `N` valid elements, in
-generation order. An option is an object with an optional string `thoughts`, a
+`build_option_schema` and keeps at most the first `N` valid elements with
+distinct tool calls, in generation order. An option is an object with an optional string `thoughts`, a
 string `action` containing a non-whitespace character, and a `tool_call` whose
 `name` is one of the `action` enumeration values of the rendered
 `qwen3vl/tools.json.j2` tool definition, the same definition shown to the
@@ -118,8 +118,11 @@ Its `arguments` must match all of the following:
    | `terminate`                                                                                  | `status`           |
    | `wait`                                                                                       | none               |
 
-Invalid elements are logged with the schema error message and discarded. Only
-validated candidates are simulated by CUWM. If none remain, CUWM and the
+Invalid elements are logged with the schema error message and discarded. A
+valid element whose `tool_call` (`name` and `arguments`) equals that of an
+earlier candidate is logged and discarded, even when its `thoughts` or `action`
+sentence differ, so each distinct action is simulated only once. Only validated,
+distinct candidates are simulated by CUWM. If none remain, CUWM and the
 selection request are skipped and the raw candidate response is returned.
 
 `parse_selection` validates the selection object against a schema requiring an
@@ -136,7 +139,8 @@ such as `duration` for `left_click_drag`, because the policy is never told about
 them. A coordinate-free click, which the base agent executes at the current
 cursor position, is rejected because CUWM cannot simulate an unknown target.
 
-One step costs `N + 2` chat completions and `N` image edits.
+One step costs at most `N + 2` chat completions and `N` image edits, one
+completion and one edit per distinct candidate plus generation and selection.
 
 ## Prompts
 
@@ -296,6 +300,6 @@ procedure as follows:
     [Validation](#validation). Invalid candidates are discarded, and a step
     without a valid candidate or selection yields no action. The paper scores
     invalid output as zero.
-12. **Simulated candidates.** Every validated candidate is simulated, including
-    `wait` and `terminate`. Beyond validation, no candidate is pruned or
-    deduplicated before simulation.
+12. **Simulated candidates.** Every validated candidate with a distinct tool
+    call is simulated, including `wait` and `terminate`. Candidates repeating an
+    earlier tool call are dropped before simulation; no other pruning is applied.

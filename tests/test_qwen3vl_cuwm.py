@@ -414,10 +414,46 @@ def test_parse_candidates_skips_malformed_options_and_truncates(
         {"action": "Wait.", "tool_call": {"name": "wait", "arguments": {"action": "wait"}}},
         "not an object",
         *CANDIDATES,
-        CANDIDATES[0],
+        option_with("wait", {}),
     ]
     response = "```json\n" + json.dumps(options) + "\n```"
     assert agent.parse_candidates(response, computer_use_tool, (1000, 1000)) == CANDIDATES
+
+
+def test_parse_candidates_keeps_the_first_of_identical_tool_calls(
+    agent: Qwen3VLCUWMAgent, computer_use_tool: dict
+) -> None:
+    """Drop repeated tool calls before truncation, regardless of their descriptions."""
+    duplicate = {
+        "thoughts": "Another reason.",
+        "action": "Open the browser.",
+        "tool_call": {"name": "left_click", "arguments": {"coordinate": [500.0, 500]}},
+    }
+    options = [CANDIDATES[0], duplicate, CANDIDATES[0], *CANDIDATES[1:]]
+    assert agent.parse_candidates(json.dumps(options), computer_use_tool, (1000, 1000)) == (
+        CANDIDATES
+    )
+
+
+def test_duplicate_candidates_are_simulated_once(
+    agent: Qwen3VLCUWMAgent,
+    world_model_backends: tuple[TextModel, ImageModel],
+    observation: dict,
+) -> None:
+    """Run CUWM once per distinct tool call and number the remaining options consecutively."""
+    text_model, image_model = world_model_backends
+    responses = [
+        completion(json.dumps([CANDIDATES[0], CANDIDATES[0], CANDIDATES[1]])),
+        completion('{"action_idx": 2, "thought": "Done."}'),
+    ]
+    with patch.object(
+        agent._client.chat.completions, "create", side_effect=responses
+    ) as mock_create:
+        _, actions = agent.predict("Open example.com", observation)
+    assert actions == ["DONE"]
+    assert len(text_model.prompts) == len(image_model.prompts) == 2
+    selection = mock_create.call_args_list[1].kwargs["messages"]
+    assert "between 1 and 2 (inclusive)" in selection[0]["content"][0]["text"]
 
 
 def option_with(name: object, arguments: object) -> dict:
