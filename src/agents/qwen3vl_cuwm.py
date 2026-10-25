@@ -37,28 +37,13 @@ REQUIRED_ARGUMENTS = {
 }
 
 
-def format_action(candidate: dict) -> str:
-    """Render a candidate in the Qwen3-VL response format used for history and selection.
-
-    Args:
-        candidate: Candidate with an `action` description and a `computer_use` `tool_call`.
-
-    Returns:
-        Action description followed by the tool call inside <tool_call> tags.
-    """
-    return render(
-        f"{PROMPT_SET}/action.j2",
-        action=candidate["action"],
-        tool_call=json.dumps(candidate["tool_call"]),
-    )
-
-
 def build_option_schema(computer_use_tool: dict, coordinate_space: tuple[int, int]) -> dict:
     """Build the JSON schema of one action option proposed by the policy.
 
-    Argument names, types, enumerations, and the required `action` come from the tool definition
-    shown to the policy. The schema adds the arguments each action's PyAutoGUI conversion uses,
-    nonempty keys and text, a nonnegative wait time, and coordinates inside the coordinate space.
+    The tool call `name` is one of the actions enumerated by the tool definition shown to the
+    policy, and the argument names, types, and enumerations come from its other parameters. The
+    schema adds the arguments each action's PyAutoGUI conversion uses, nonempty keys and text, a
+    nonnegative wait time, and coordinates inside the coordinate space.
 
     Args:
         computer_use_tool: Tool definition shown to the policy.
@@ -67,6 +52,7 @@ def build_option_schema(computer_use_tool: dict, coordinate_space: tuple[int, in
     Returns:
         JSON schema (draft 2020-12) of an option with `thoughts`, `action`, and `tool_call`.
     """
+    parameters = computer_use_tool["function"]["parameters"]["properties"]
     argument_constraints = {
         "keys": {"minItems": 1, "items": {"type": "string", "pattern": r"\S"}},
         "text": {"minLength": 1},
@@ -80,11 +66,18 @@ def build_option_schema(computer_use_tool: dict, coordinate_space: tuple[int, in
         },
         "time": {"minimum": 0},
     }
+    arguments_schema = {
+        "type": "object",
+        "properties": {name: schema for name, schema in parameters.items() if name != "action"},
+        "additionalProperties": False,
+    }
     action_requirements = [
-        {"if": {"properties": {"action": {"const": action}}}, "then": {"required": required}}
+        {
+            "if": {"properties": {"name": {"const": action}}},
+            "then": {"properties": {"arguments": {"required": required}}},
+        }
         for action, required in REQUIRED_ARGUMENTS.items()
     ]
-    arguments_schema = computer_use_tool["function"]["parameters"] | {"additionalProperties": False}
     return {
         "type": "object",
         "required": ["action", "tool_call"],
@@ -95,15 +88,12 @@ def build_option_schema(computer_use_tool: dict, coordinate_space: tuple[int, in
                 "type": "object",
                 "required": ["name", "arguments"],
                 "properties": {
-                    "name": {"const": "computer_use"},
+                    "name": {"enum": parameters["action"]["enum"]},
                     "arguments": {
-                        "allOf": [
-                            arguments_schema,
-                            {"properties": argument_constraints},
-                            *action_requirements,
-                        ]
+                        "allOf": [arguments_schema, {"properties": argument_constraints}]
                     },
                 },
+                "allOf": action_requirements,
             },
         },
     }
@@ -112,7 +102,7 @@ def build_option_schema(computer_use_tool: dict, coordinate_space: tuple[int, in
 class Qwen3VLCUWMAgent(Agent):
     """Qwen3-VL agent that simulates candidate actions with CUWM before executing one.
 
-    Each step generates candidate `computer_use` tool calls, predicts each candidate's next
+    Each step generates candidate tool calls, predicts each candidate's next
     screenshot with CUWM, and executes the candidate whose predicted outcome the policy selects.
 
     Attributes:
@@ -126,7 +116,8 @@ class Qwen3VLCUWMAgent(Agent):
         num_options: Number of candidate actions requested per step.
         cuwm_config: Path to the CUWM TOML configuration; its prompt_set is replaced by the
             `cuwm-qwen3vl` templates, which do not require an application name.
-        actions: Executed actions in the Qwen3-VL response format, one per completed step.
+        actions: Executed tool calls with an action `name` and its `arguments`, one per
+            completed step.
         screenshots: Base64 processed screenshots on which each executed action was taken.
 
     Args:
@@ -167,7 +158,7 @@ class Qwen3VLCUWMAgent(Agent):
         self.coordinate_type = cfg.get("coordinate_type", coordinate_type)
         self.num_options = cfg.get("num_options", num_options)
         self.cuwm_config = cfg.get("cuwm_config", cuwm_config)
-        self.actions: list[str] = []
+        self.actions: list[dict] = []
         self.screenshots: list[str] = []
 
         self._client = openai.OpenAI(
@@ -208,7 +199,7 @@ class Qwen3VLCUWMAgent(Agent):
             f"{PROMPT_SET}/action_option_generation.j2",
             has_history=self.history_n > 0,
             instruction=instruction,
-            actions=json.dumps(computer_use_tool),
+            actions=computer_use_tool,
             num_options=self.num_options,
         )
         content = [*self._build_history_content(), *self._build_current_content(processed_image)]
@@ -235,7 +226,7 @@ class Qwen3VLCUWMAgent(Agent):
             zip(candidates, predicted_images), start=1
         ):
             option_text = render(
-                f"{PROMPT_SET}/action_option.j2", index=index, action=format_action(candidate)
+                f"{PROMPT_SET}/action_option.j2", index=index, action=candidate["tool_call"]
             )
             content.append({"type": "text", "text": option_text})
             content.append(build_image_content(predicted_image))
@@ -280,7 +271,7 @@ class Qwen3VLCUWMAgent(Agent):
                     "thoughts": option.get("thoughts", ""),
                     "action": option["action"].strip(),
                     "tool_call": {
-                        "name": "computer_use",
+                        "name": option["tool_call"]["name"],
                         "arguments": option["tool_call"]["arguments"],
                     },
                 }
@@ -394,7 +385,10 @@ class Qwen3VLCUWMAgent(Agent):
 
         selected = candidates[selected_index]
         self.screenshots.append(processed_image)
-        self.actions.append(format_action(selected))
+        self.actions.append(selected["tool_call"])
         return trace, convert_tool_call_to_pyautogui(
-            selected["tool_call"]["arguments"], self.coordinate_type, original_size, processed_size
+            {"action": selected["tool_call"]["name"]} | selected["tool_call"]["arguments"],
+            self.coordinate_type,
+            original_size,
+            processed_size,
         )

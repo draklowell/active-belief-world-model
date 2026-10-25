@@ -1,3 +1,6 @@
+import json
+from functools import partial
+
 from jinja2 import Environment, PackageLoader, StrictUndefined
 
 environment = Environment(
@@ -5,6 +8,9 @@ environment = Environment(
     undefined=StrictUndefined,
     autoescape=False,
 )
+# Add a filter to convert Python objects to JSON strings without escaping non-ASCII characters
+# and retain key order.
+environment.filters["tojson"] = partial(json.dumps, ensure_ascii=False)
 
 
 def render(template_name: str, **context: object) -> str:

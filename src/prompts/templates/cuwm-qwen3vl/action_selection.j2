@@ -9,7 +9,7 @@ The current screenshot is provided as an image after the previous steps.
 {% else %}The current screenshot is provided as an image.
 {% endif %}
 You are given a list of action options, each with:
-- action: a short description of the action, followed by the structured `computer_use` tool call to be executed
+- action: the structured tool call to be executed, as a JSON object with the action `name` and its `arguments`
 - predicted_state_image: a visual prediction (mockup) showing the expected GUI state after executing the action
 
 The `predicted_state_image` fields are simulations. Use them as references, but **ignore diffusion artifacts** (e.g., garbled text, noisy details). If a prediction is unreliable or inconsistent with the task, you may ignore it.
@@ -25,10 +25,12 @@ The `predicted_state_image` fields are simulations. Use them as references, but 
 
 
 Please return your final answer as a JSON object with the following format:
+```json
 {
-  "action_idx": <index of selected action>,
-  "thought": "<brief explanation of why this action was selected>"
+  "thought": "<brief explanation of why this action was selected>",
+  "action_idx": <index of selected action>
 }
+```
 Do NOT include anything else outside the JSON object.
 The candidate action options are provided after the current screenshot, numbered from 1 to {{ num_options }}.
 
