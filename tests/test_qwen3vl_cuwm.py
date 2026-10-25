@@ -20,18 +20,12 @@ CANDIDATES = [
     {
         "thoughts": "The Chrome icon starts the browser.",
         "action": "Click the Chrome icon.",
-        "tool_call": {
-            "name": "computer_use",
-            "arguments": {"action": "left_click", "coordinate": [500, 500]},
-        },
+        "tool_call": {"name": "left_click", "arguments": {"coordinate": [500, 500]}},
     },
     {
         "thoughts": "The task may already be complete.",
         "action": "Report that the task is completed.",
-        "tool_call": {
-            "name": "computer_use",
-            "arguments": {"action": "terminate", "status": "success"},
-        },
+        "tool_call": {"name": "terminate", "arguments": {"status": "success"}},
     },
 ]
 
@@ -147,7 +141,11 @@ def test_agent_implements_the_benchmark_protocol(agent: Qwen3VLCUWMAgent) -> Non
 
 
 PROMPT_CONTEXTS = {
-    "action_option_generation": {"instruction": "<g>", "actions": "<A>", "num_options": 2},
+    "action_option_generation": {
+        "instruction": "<g>",
+        "actions": {"type": "function"},
+        "num_options": 2,
+    },
     "action_selection": {"instruction": "<g>", "num_options": 2},
 }
 
@@ -163,7 +161,10 @@ def test_system_prompts_require_every_variable(name: str, has_history: bool) -> 
     assert "<g>" in prompt
     assert ("previous step" in prompt.lower()) is has_history
     for missing in context:
-        with pytest.raises(UndefinedError, match=missing):
+        expected_error = (
+            (TypeError, "StrictUndefined") if missing == "actions" else (UndefinedError, missing)
+        )
+        with pytest.raises(expected_error[0], match=expected_error[1]):
             render(
                 f"cuwm-qwen3vl/{name}.j2",
                 **{key: value for key, value in context.items() if key != missing},
@@ -172,16 +173,19 @@ def test_system_prompts_require_every_variable(name: str, has_history: bool) -> 
 
 @pytest.mark.parametrize("has_history", [True, False])
 def test_generation_prompt_examples_are_valid_tool_calls(has_history: bool) -> None:
-    """Show only `computer_use` tool calls from the Qwen3-VL action space."""
+    """Show only tool calls named after actions of the Qwen3-VL action space."""
     prompt = render(
         "cuwm-qwen3vl/action_option_generation.j2",
         has_history=has_history,
         **PROMPT_CONTEXTS["action_option_generation"],
     )
     examples = [
-        json.loads(example) for example in re.findall(r"```json\n(.*?)\n```", prompt, re.DOTALL)
+        json.loads(example)
+        for example in re.findall(
+            r"```json\n(.*?)\n```", prompt.split("Task instruction:")[0], re.DOTALL
+        )
     ]
-    assert [example["tool_call"]["arguments"]["action"] for example in examples] == [
+    assert [example["tool_call"]["name"] for example in examples] == [
         "left_click",
         "type",
         "key",
@@ -189,7 +193,7 @@ def test_generation_prompt_examples_are_valid_tool_calls(has_history: bool) -> N
         "terminate",
     ]
     assert all(set(example) == {"thoughts", "action", "tool_call"} for example in examples)
-    assert all(example["tool_call"]["name"] == "computer_use" for example in examples)
+    assert all("action" not in example["tool_call"]["arguments"] for example in examples)
 
 
 def test_inserted_text_is_not_interpreted_as_a_template() -> None:
@@ -202,14 +206,14 @@ def test_inserted_text_is_not_interpreted_as_a_template() -> None:
         num_options=3,
     )
     assert f"The task instruction is:\n{instruction}\n" in prompt
-    assert render("cuwm-qwen3vl/history_step.j2", step=4, action=instruction) == (
-        f"Step 4 executed action:\n{instruction}"
+    tool_call = {"name": "type", "arguments": {"text": "{{ x }} {% raw %} Don't <b>&"}}
+    assert render("cuwm-qwen3vl/history_step.j2", step=4, action=tool_call) == (
+        "Step 4 executed action:\n" + json.dumps(tool_call)
     )
-    assert render("cuwm-qwen3vl/action.j2", action="Click {{ x }}.", tool_call='{"a": 1}') == (
-        'Action: Click {{ x }}.\n<tool_call>\n{"a": 1}\n</tool_call>'
-    )
-    assert render("cuwm-qwen3vl/action_option.j2", index=2, action="Action: Wait.") == (
-        "Action Option 2:\n - Action:\nAction: Wait.\n - Predicted State Image: see below."
+    assert render("cuwm-qwen3vl/action_option.j2", index=2, action=tool_call) == (
+        "Action Option 2:\n - Action:\n```json\n"
+        + json.dumps(tool_call)
+        + "\n```\n - Predicted State Image: see below."
     )
 
 
@@ -242,8 +246,10 @@ def test_predict_simulates_every_candidate_and_executes_the_selected_one(
     generation, selection = (call.kwargs["messages"] for call in mock_create.call_args_list)
     generation_prompt = generation[0]["content"][0]["text"]
     assert "Task instruction:\nOpen example.com" in generation_prompt
-    assert "generate 2 diverse" in generation_prompt
+    assert "generate 2 ALTERNATIVE candidates" in generation_prompt
     assert '"name": "computer_use"' in generation_prompt
+    assert '"name": "left_click"' in generation_prompt
+    assert "Don't click boxes" in generation_prompt
     assert "resolution is 1000x1000" in generation_prompt
     assert count_images(generation[1]) == 1
     selection_prompt = selection[0]["content"][0]["text"]
@@ -259,11 +265,7 @@ def test_predict_simulates_every_candidate_and_executes_the_selected_one(
         "Transition 1",
         "Transition 2",
     ]
-    assert agent.actions == [
-        "Action: Click the Chrome icon.\n<tool_call>\n"
-        + json.dumps(CANDIDATES[0]["tool_call"])
-        + "\n</tool_call>"
-    ]
+    assert agent.actions == [CANDIDATES[0]["tool_call"]]
     assert len(agent.screenshots) == 1
 
 
@@ -271,7 +273,10 @@ def test_history_includes_executed_actions_within_the_window(
     agent: Qwen3VLCUWMAgent, observation: dict
 ) -> None:
     """Show only the most recent executed step and its screenshot to both policy requests."""
-    agent.actions = ["Action: first", "Action: second"]
+    agent.actions = [
+        {"name": "type", "arguments": {"text": "first"}},
+        {"name": "type", "arguments": {"text": "second"}},
+    ]
     agent.screenshots = [
         base64.b64encode(encode_png((8, 8), "red")).decode(),
         base64.b64encode(encode_png((8, 8), "blue")).decode(),
@@ -289,8 +294,8 @@ def test_history_includes_executed_actions_within_the_window(
     generation, selection = (call.kwargs["messages"] for call in mock_create.call_args_list)
     for messages, image_count in ((generation, 2), (selection, 4)):
         texts = [part["text"] for part in messages[1]["content"] if part["type"] == "text"]
-        assert "Step 2 executed action:\nAction: second" in texts
-        assert not any("Action: first" in text for text in texts)
+        assert 'Step 2 executed action:\n{"name": "type", "arguments": {"text": "second"}}' in texts
+        assert not any("first" in text for text in texts)
         assert count_images(messages[1]) == image_count
     assert len(agent.actions) == 3
 
@@ -337,7 +342,7 @@ def test_prompts_without_history_only_drop_the_history_input(name: str) -> None:
 @pytest.mark.parametrize("agent_config", [{"num_options": 2, "history_n": 0}])
 def test_zero_history_omits_previous_steps(agent: Qwen3VLCUWMAgent, observation: dict) -> None:
     """Use the history-free prompts and send no previous steps when K = 0."""
-    agent.actions = ["Action: first"]
+    agent.actions = [{"name": "type", "arguments": {"text": "first"}}]
     agent.screenshots = [base64.b64encode(encode_png((8, 8), "red")).decode()]
     responses = [
         completion(json.dumps(CANDIDATES)),
@@ -353,7 +358,7 @@ def test_zero_history_omits_previous_steps(agent: Qwen3VLCUWMAgent, observation:
     for messages, image_count in ((generation, 1), (selection, 3)):
         assert "previous" not in messages[0]["content"][0]["text"].lower()
         texts = [part["text"] for part in messages[1]["content"] if part["type"] == "text"]
-        assert not any("Previous steps" in text or "Action: first" in text for text in texts)
+        assert not any("Previous steps" in text or "first" in text for text in texts)
         assert count_images(messages[1]) == image_count
 
 
@@ -397,100 +402,142 @@ def test_unparseable_candidates_skip_simulation(
 def test_parse_candidates_skips_malformed_options_and_truncates(
     agent: Qwen3VLCUWMAgent, computer_use_tool: dict
 ) -> None:
-    """Keep only valid `computer_use` candidates, up to the requested number."""
+    """Keep only valid candidates, up to the requested number."""
     options = [
-        {"action": "Click.", "tool_call": {"name": "other", "arguments": {"action": "wait"}}},
-        {"action": "", "tool_call": CANDIDATES[0]["tool_call"]},
-        {"action": "Fly.", "tool_call": {"name": "computer_use", "arguments": {"action": "fly"}}},
-        {"action": "Click.", "tool_call": {"name": "computer_use", "arguments": {}}},
         {
             "action": "Click.",
-            "tool_call": {"name": "computer_use", "arguments": {"action": "left_click"}},
+            "tool_call": {"name": "computer_use", "arguments": {"action": "wait"}},
         },
+        {"action": "", "tool_call": CANDIDATES[0]["tool_call"]},
+        {"action": "Fly.", "tool_call": {"name": "fly", "arguments": {}}},
+        {"action": "Click.", "tool_call": {"name": "left_click", "arguments": {}}},
+        {"action": "Wait.", "tool_call": {"name": "wait", "arguments": {"action": "wait"}}},
         "not an object",
         *CANDIDATES,
-        CANDIDATES[0],
+        option_with("wait", {}),
     ]
     response = "```json\n" + json.dumps(options) + "\n```"
     assert agent.parse_candidates(response, computer_use_tool, (1000, 1000)) == CANDIDATES
 
 
-def option_with(arguments: dict) -> dict:
-    """Wrap tool call arguments in a described `computer_use` option."""
-    return {"action": "Act.", "tool_call": {"name": "computer_use", "arguments": arguments}}
+def test_parse_candidates_keeps_the_first_of_identical_tool_calls(
+    agent: Qwen3VLCUWMAgent, computer_use_tool: dict
+) -> None:
+    """Drop repeated tool calls before truncation, regardless of their descriptions."""
+    duplicate = {
+        "thoughts": "Another reason.",
+        "action": "Open the browser.",
+        "tool_call": {"name": "left_click", "arguments": {"coordinate": [500.0, 500]}},
+    }
+    options = [CANDIDATES[0], duplicate, CANDIDATES[0], *CANDIDATES[1:]]
+    assert agent.parse_candidates(json.dumps(options), computer_use_tool, (1000, 1000)) == (
+        CANDIDATES
+    )
+
+
+def test_duplicate_candidates_are_simulated_once(
+    agent: Qwen3VLCUWMAgent,
+    world_model_backends: tuple[TextModel, ImageModel],
+    observation: dict,
+) -> None:
+    """Run CUWM once per distinct tool call and number the remaining options consecutively."""
+    text_model, image_model = world_model_backends
+    responses = [
+        completion(json.dumps([CANDIDATES[0], CANDIDATES[0], CANDIDATES[1]])),
+        completion('{"action_idx": 2, "thought": "Done."}'),
+    ]
+    with patch.object(
+        agent._client.chat.completions, "create", side_effect=responses
+    ) as mock_create:
+        _, actions = agent.predict("Open example.com", observation)
+    assert actions == ["DONE"]
+    assert len(text_model.prompts) == len(image_model.prompts) == 2
+    selection = mock_create.call_args_list[1].kwargs["messages"]
+    assert "between 1 and 2 (inclusive)" in selection[0]["content"][0]["text"]
+
+
+def option_with(name: object, arguments: object) -> dict:
+    """Wrap a tool call in a described option."""
+    return {"action": "Act.", "tool_call": {"name": name, "arguments": arguments}}
 
 
 @pytest.mark.parametrize(
-    "arguments",
+    "name, arguments",
     [
-        {"action": "key", "keys": ["ctrl", "s"]},
-        {"action": "type", "text": "hello\n"},
-        {"action": "mouse_move", "coordinate": [0, 0]},
-        {"action": "left_click", "coordinate": [999, 999.5]},
-        {"action": "left_click_drag", "coordinate": [10, 20]},
-        {"action": "right_click", "coordinate": [1, 2]},
-        {"action": "middle_click", "coordinate": [1, 2]},
-        {"action": "double_click", "coordinate": [1, 2]},
-        {"action": "scroll", "pixels": -5},
-        {"action": "wait"},
-        {"action": "wait", "time": 2.5},
-        {"action": "terminate", "status": "failure"},
+        ("key", {"keys": ["ctrl", "s"]}),
+        ("type", {"text": "hello\n"}),
+        ("mouse_move", {"coordinate": [0, 0]}),
+        ("left_click", {"coordinate": [999, 999.5]}),
+        ("left_click_drag", {"coordinate": [10, 20]}),
+        ("right_click", {"coordinate": [1, 2]}),
+        ("middle_click", {"coordinate": [1, 2]}),
+        ("double_click", {"coordinate": [1, 2]}),
+        ("scroll", {"pixels": -5}),
+        ("wait", {}),
+        ("wait", {"time": 2.5}),
+        ("terminate", {"status": "failure"}),
     ],
 )
-def test_valid_arguments_for_every_action(arguments: dict, computer_use_tool: dict) -> None:
+def test_valid_arguments_for_every_action(
+    name: str, arguments: dict, computer_use_tool: dict
+) -> None:
     """Accept each action with the arguments its PyAutoGUI conversion uses."""
     schema = build_option_schema(computer_use_tool, (1000, 1000))
-    assert Draft202012Validator(schema).is_valid(option_with(arguments))
+    assert Draft202012Validator(schema).is_valid(option_with(name, arguments))
 
 
 @pytest.mark.parametrize(
-    "arguments",
+    "name, arguments",
     [
-        {},
-        {"action": "fly"},
-        {"action": ["left_click"]},
-        {"action": "left_click"},
-        {"action": "left_click", "coordinate": [1, 2], "button": "left"},
-        {"action": "left_click", "coordinate": [1]},
-        {"action": "left_click", "coordinate": [1000, 2]},
-        {"action": "left_click", "coordinate": [-1, 2]},
-        {"action": "left_click", "coordinate": ["1", 2]},
-        {"action": "left_click", "coordinate": [True, 2]},
-        {"action": "left_click", "coordinate": "1, 2"},
-        {"action": "left_click_drag", "coordinate": [1, 2], "duration": 1},
-        {"action": "key"},
-        {"action": "key", "keys": []},
-        {"action": "key", "keys": ["ctrl", " "]},
-        {"action": "key", "keys": "ctrl+s"},
-        {"action": "type"},
-        {"action": "type", "text": ""},
-        {"action": "scroll"},
-        {"action": "scroll", "pixels": "5"},
-        {"action": "scroll", "pixels": True},
-        {"action": "wait", "time": -1},
-        {"action": "terminate"},
-        {"action": "terminate", "status": "done"},
+        ("computer_use", {"action": "wait"}),
+        ("fly", {}),
+        (["left_click"], {"coordinate": [1, 2]}),
+        ("left_click", {}),
+        ("left_click", {"coordinate": [1, 2], "action": "left_click"}),
+        ("left_click", {"coordinate": [1, 2], "button": "left"}),
+        ("left_click", {"coordinate": [1]}),
+        ("left_click", {"coordinate": [1000, 2]}),
+        ("left_click", {"coordinate": [-1, 2]}),
+        ("left_click", {"coordinate": ["1", 2]}),
+        ("left_click", {"coordinate": [True, 2]}),
+        ("left_click", {"coordinate": "1, 2"}),
+        ("left_click", [1, 2]),
+        ("left_click_drag", {"coordinate": [1, 2], "duration": 1}),
+        ("key", {}),
+        ("key", {"keys": []}),
+        ("key", {"keys": ["ctrl", " "]}),
+        ("key", {"keys": "ctrl+s"}),
+        ("type", {}),
+        ("type", {"text": ""}),
+        ("scroll", {}),
+        ("scroll", {"pixels": "5"}),
+        ("scroll", {"pixels": True}),
+        ("wait", {"time": -1}),
+        ("terminate", {}),
+        ("terminate", {"status": "done"}),
     ],
 )
-def test_invalid_arguments_are_rejected(arguments: dict, computer_use_tool: dict) -> None:
-    """Reject arguments that the tool definition or the PyAutoGUI conversion cannot use."""
+def test_invalid_arguments_are_rejected(
+    name: object, arguments: object, computer_use_tool: dict
+) -> None:
+    """Reject tool calls that the tool definition or the PyAutoGUI conversion cannot use."""
     schema = build_option_schema(computer_use_tool, (1000, 1000))
-    assert not Draft202012Validator(schema).is_valid(option_with(arguments))
+    assert not Draft202012Validator(schema).is_valid(option_with(name, arguments))
 
 
 @pytest.mark.parametrize(
     "option",
     [
-        {"tool_call": {"name": "computer_use", "arguments": {"action": "wait"}}},
-        {"action": " ", "tool_call": {"name": "computer_use", "arguments": {"action": "wait"}}},
-        {"action": "Wait.", "tool_call": {"name": "other", "arguments": {"action": "wait"}}},
-        {"action": "Wait.", "tool_call": {"name": "computer_use"}},
+        {"tool_call": {"name": "wait", "arguments": {}}},
+        {"action": " ", "tool_call": {"name": "wait", "arguments": {}}},
+        {"action": "Wait.", "tool_call": {"arguments": {}}},
+        {"action": "Wait.", "tool_call": {"name": "wait"}},
         {"action": "Wait.", "thoughts": 1, "tool_call": CANDIDATES[0]["tool_call"]},
         "not an object",
     ],
 )
 def test_malformed_options_are_rejected(option: object, computer_use_tool: dict) -> None:
-    """Require a described `computer_use` tool call with string thoughts."""
+    """Require a described tool call with a name, arguments, and string thoughts."""
     schema = build_option_schema(computer_use_tool, (1000, 1000))
     assert not Draft202012Validator(schema).is_valid(option)
 
@@ -508,10 +555,7 @@ def test_absolute_coordinates_are_bounded_by_the_processed_screenshot(
     candidates = [
         {
             "action": f"Click at {x}.",
-            "tool_call": {
-                "name": "computer_use",
-                "arguments": {"action": "left_click", "coordinate": [x, 10]},
-            },
+            "tool_call": {"name": "left_click", "arguments": {"coordinate": [x, 10]}},
         }
         for x in (991, 992)
     ]

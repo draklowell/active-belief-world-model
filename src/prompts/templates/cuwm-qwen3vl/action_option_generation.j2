@@ -7,11 +7,39 @@ You will be provided with the following inputs:
 3. **Task instruction**: A description of the action or goal to be completed.
 4. **Supported actions**:{% else %}1. **Current screenshot**: An image of the current state of the desktop.
 2. **Task instruction**: A description of the action or goal to be completed.
-3. **Supported actions**:{% endif %} The signature of the `computer_use` function, describing all actions that can be performed in this environment, their arguments, and the screen resolution used for coordinates.
+3. **Supported actions**:{% endif %} A list of all actions that can be performed in
+this environment.
 
 {% if has_history %}The previous steps show how the earlier actions changed the desktop, allowing you to track task progress and avoid repeating actions that did not have the intended effect.
 
 {% endif %}Your objective is to generate multiple diverse and plausible next actions that could be taken to accomplish the given task instruction, {% if has_history %}based on the current screenshot and the previous steps. The desired{% else %}based on the current screenshot. The desired{% endif %} number of options is specified at the end of these instructions.
+
+**CRITICAL: THE OPTIONS ARE ALTERNATIVES, NOT A PLAN.**
+- Only ONE of your options will be executed. A separate model will pick it; all other options are discarded.
+- After that single action runs, a new screenshot is taken and you will be asked again. You never need to plan beyond the current step.
+- Every option must be a valid candidate for the very next action, executable directly on the CURRENT screenshot.
+- No option may depend on another option being executed first. Option 2 is NOT "what to do after option 1".
+- Do NOT split one plan into steps across options (e.g. option 1 = click the field, option 2 = type text into it, option 3 = press Enter). That is a sequence and is WRONG.
+
+**Self-check for every option:** "If this were the ONLY action executed right now, starting from the current screenshot, would it make sense?" If the answer is no, replace the option.
+
+**How to make options diverse:** offer different ways to make the SAME next move, or different reasonable next moves, all starting from the current state:
+- different target elements (e.g. the "Save" button vs. the "File" menu)
+- different methods (mouse click vs. keyboard shortcut vs. typing into a search box)
+- different interpretations of the task when it is ambiguous
+- different strategies for reaching the goal (navigate via menu vs. via settings vs. via search)
+
+**Example.** Task: "Search for 'weather' in Chrome". Current screenshot: Chrome is open, address bar is not focused.
+
+WRONG (a sequence; options 2 and 3 only make sense after option 1):
+1. Click the address bar.
+2. Type "weather".
+3. Press Enter.
+
+CORRECT (alternatives; each one is a sensible first move from the current screenshot):
+1. Click the address bar.
+2. Press Ctrl+L to focus the address bar.
+3. Click the Google search box in the middle of the page.
 
 Use all the provided information-{% if has_history %}including the current screenshot, previous steps, task instruction, and supported actions-to{% else %}including the current screenshot, task instruction, and supported actions-to{% endif %} reason about the next appropriate actions accurately.
 
@@ -31,9 +59,9 @@ Please think very hard and carefully about the current state and the task instru
 
 The "action" field in each element should contain one short imperative sentence describing what to do in the UI.
 
-The "tool_call" field in each element should contain one call of the `computer_use` function:
-- "name": str, Always "computer_use"
-- "arguments": Dict, The arguments of the function, including the required "action" argument
+The "tool_call" field in each element should contain:
+- "name": str, The name of the function to execute, such as "left_click", "right_click", "type", "key", "left_click_drag", or "terminate"
+- "arguments": Dict, The arguments/parameters for the function, such as "coordinate" for click operations, "text" for typing, or "keys" for keyboard shortcuts. Coordinates must follow the screen resolution stated in the supported actions.
 
 For click operations, use the coordinate of the center of the target element:
 ```json
@@ -41,8 +69,8 @@ For click operations, use the coordinate of the center of the target element:
   "thoughts": "The screenshot shows the desktop with a Chrome icon in the left dock. The task requires opening a web page, so the browser must be started first. The center of the Chrome icon is the most reliable click target.",
   "action": "Click the Chrome icon in the dock.",
   "tool_call": {
-    "name": "computer_use",
-    "arguments": {"action": "left_click", "coordinate": [18, 120]}
+    "name": "left_click",
+    "arguments": {"coordinate": [18, 120]}
   }
 }
 ```
@@ -53,8 +81,8 @@ For type operations, make sure the target text field is focused, then type the t
   "thoughts": "{% if has_history %}The previous step clicked the address bar, and the current screenshot shows it focused{% else %}The current screenshot shows the address bar focused{% endif %} with a blinking cursor. Typing the URL followed by a newline submits it.",
   "action": "Type the URL into the address bar and press Enter.",
   "tool_call": {
-    "name": "computer_use",
-    "arguments": {"action": "type", "text": "https://www.example.com\n"}
+    "name": "type",
+    "arguments": {"text": "https://www.example.com\n"}
   }
 }
 ```
@@ -65,8 +93,8 @@ For keyboard shortcuts, list the keys in the order they are pressed:
   "thoughts": "The document is open and edited. Saving with the standard keyboard shortcut avoids searching for the save button.",
   "action": "Press Ctrl+S to save the document.",
   "tool_call": {
-    "name": "computer_use",
-    "arguments": {"action": "key", "keys": ["ctrl", "s"]}
+    "name": "key",
+    "arguments": {"keys": ["ctrl", "s"]}
   }
 }
 ```
@@ -77,8 +105,8 @@ For drag operations, {% if has_history %}move the cursor to the start coordinate
   "thoughts": "{% if has_history %}The previous step moved the cursor onto the file icon.{% else %}The current screenshot shows the cursor on the file icon.{% endif %} Dragging it onto the folder moves the file into that folder.",
   "action": "Drag the file icon onto the Documents folder.",
   "tool_call": {
-    "name": "computer_use",
-    "arguments": {"action": "left_click_drag", "coordinate": [420, 310]}
+    "name": "left_click_drag",
+    "arguments": {"coordinate": [420, 310]}
   }
 }
 ```
@@ -89,13 +117,13 @@ If you think the task is finished, terminate it with status "success". If the ta
   "thoughts": "Based on the current state of the desktop and the task instruction, no further actions are required.",
   "action": "Report that the task is completed.",
   "tool_call": {
-    "name": "computer_use",
-    "arguments": {"action": "terminate", "status": "success"}
+    "name": "terminate",
+    "arguments": {"status": "success"}
   }
 }
 ```
 
-Only **ONE** action should be taken per option. You may output multiple options (as requested by num_options), but each option must correspond to exactly one action. If the task instruction could apply to multiple elements, choose the most relevant one for each option {% if has_history %}based on the current screenshot and the previous steps, and ensure{% else %}based on the current screenshot, and ensure{% endif %} the options are diverse.
+Each option contains exactly ONE action, and the options are mutually exclusive alternatives: exactly one will be chosen and executed. Never write options that build on each other. If the task instruction could apply to multiple elements, choose the most relevant one for each option {% if has_history %}based on the current screenshot and the previous steps, and ensure{% else %}based on the current screenshot, and ensure{% endif %} the options are diverse.
 
 Your response MUST be a valid JSON array with no additional text outside the JSON structure.
 
@@ -103,10 +131,12 @@ Task instruction:
 {{ instruction }}
 
 Supported actions:
-{{ actions }}
+```json
+{{ actions | tojson }}
+```
 
 {% if has_history %}The previous steps and the current screenshot are provided as images.{% else %}The current screenshot is provided as an image.{% endif %}
 
-Please analyze the current state {% if has_history %}using both visual information and the previous steps to generate{% else %}using the visual information to generate{% endif %} {{ num_options }} diverse and plausible next actions that could be taken to move toward completing the task instruction.
+Please analyze the current state {% if has_history %}using both visual information and the previous steps to generate{% else %}using the visual information to generate{% endif %} {{ num_options }} ALTERNATIVE candidates for the SINGLE next action that could be taken to move toward completing the task instruction. Remember: only one option will be executed, every option must start from the current screenshot.
 
 Please provide your reasoning and the next actions below in JSON array format without any additional text.

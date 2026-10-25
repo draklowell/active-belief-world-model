@@ -219,7 +219,7 @@ def test_desktop_transition_keeps_the_paper_instructions_without_an_application(
     assert "Office" not in desktop_prompt
     shared_sections = [
         "Your task is to predict and describe the likely appearance of the Next UI Screenshot",
-        "Current UI Screenshot:\n{image}\n\nAction:\n{action}",
+        "Current UI Screenshot:\n{image}\n\nAction:\n",
         "GUI Action Description:\n{gui_description}",
         "Only describe changed parts; for unchanged elements, state explicitly",
         "Do not include reasoning, internal thoughts, or references to the images",
@@ -227,6 +227,8 @@ def test_desktop_transition_keeps_the_paper_instructions_without_an_application(
     ]
     assert all(section in paper_prompt for section in shared_sections)
     assert all(section in desktop_prompt for section in shared_sections)
+    assert "Action:\n{action}\n" in paper_prompt
+    assert "Action:\n```json\n{action}\n```\n" in desktop_prompt
 
 
 @pytest.mark.parametrize("missing", DESKTOP_CONTEXT)
