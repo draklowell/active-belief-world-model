@@ -1,0 +1,28 @@
+seed = 2026
+osworld_tasks = "evaluation_examples/test_all.json"
+overlap_threshold = 0.8
+output_dir = "data/interim/cuwm"
+
+[split_fractions]
+train = 0.9
+validation = 0.03
+test = 0.07
+
+[sample_sizes]
+train = 2876
+validation = 98
+test = 339
+
+[domain_weights]
+Chrome = 46
+Gimp = 26
+libreoffice_calc = 47
+libreoffice_impress = 47
+libreoffice_writer = 23
+MultiApp = 101
+OS = 24
+Thunderbird = 15
+VLC = 17
+VScode = 23
+infeasible = 26
+error_correction = 26
