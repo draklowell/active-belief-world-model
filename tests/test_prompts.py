@@ -101,6 +101,14 @@ def test_tool_schema_preserves_quoted_multiline_and_literal_template_text() -> N
     assert tools["function"]["parameters"]["required"] == ["action"]
 
 
+def test_tojson_keeps_key_order_and_literal_characters() -> None:
+    """Serialize values as plain JSON without sorting keys or HTML-safe escapes."""
+    tool_call = {"name": "type", "arguments": {"text": "Don't <b>& привіт"}}
+    assert render("cuwm-qwen3vl/history_step.j2", step=1, action=tool_call) == (
+        'Step 1 executed action:\n{"name": "type", "arguments": {"text": "Don\'t <b>& привіт"}}'
+    )
+
+
 @pytest.mark.parametrize("missing", ["description_prompt", "action_descriptions"])
 def test_tool_schema_rejects_missing_descriptions(missing: str) -> None:
     """Report the missing schema variable before attempting to parse rendered JSON."""
