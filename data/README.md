@@ -127,11 +127,14 @@ without a weight is not sampled.
 | `osworld_overlap.csv`        | Excluded tasks, best OSWorld match, exactness and containment        |
 | `build_info.json`            | Revision, settings, exclusion counts, sample coverage and image size |
 | `images_manifest.csv`        | Downloaded screenshots of the sample with sha256 digests             |
+| `labels.jsonl`               | Teacher labels of the sample with teacher metadata                   |
 
 Both Parquet files have one row per step with `task_id`, `domain`, `instruction`, `index`,
 `image`, `next_image`, `code`, `tool_arguments` (JSON `computer_use` arguments),
 `action_name`, `gui_description` (the AgentNet `action` text), `reflection` (AgentNet's own
-comparison of the two screenshots, null on about a third of the sample), `judge_status`, the
+comparison of the two screenshots, null on about a third of the sample), `next_observation`
+(AgentNet's description of the next screenshot, the `observation` of the next step),
+`judge_status`, the
 CRC32 and size of both screenshots, `exclusion_reason` and `split`. The `tool_arguments` keep the
 `action` argument so that either tool call layout of the agent can be rendered from them.
 
@@ -153,7 +156,7 @@ the clock, exclude the task goal, and keep the answer under 300 words to fit the
 | `next_image`       | Marker of the next screenshot, attached second                                            |
 | `action`           | `{"name": "computer_use", "arguments": ...}` built from `tool_arguments`, as at inference |
 | `gui_description`  | The AgentNet `action` text                                                                |
-| `next_observation` | AgentNet `observation` of the next step as an untrusted hint, or `None` to omit it        |
+| `next_observation` | The `next_observation` column as an untrusted hint, or `None` to omit it                  |
 
 The task instruction and `reflection` are not given to the teacher. `reflection` exists only for
 judged tasks, so its coverage depends on the domain, and both AgentNet texts mention the task
@@ -185,6 +188,40 @@ so clients use `http://teacher-server:8000/v1`.
 
 `revision` and `limit_mm_per_prompt` are optional server options that map to the vLLM flags
 `--revision` and `--limit-mm-per-prompt`; other server configurations omit them.
+
+### Labelling
+
+`scripts/label_cuwm_transitions.py` sends every sampled transition to the teacher server and
+appends one JSON record per label to the output file:
+
+```bash
+uv run python scripts/label_cuwm_transitions.py --config config/cuwm-labels.toml \
+  --output data/interim/cuwm/labels.jsonl --gpu G4
+```
+
+`--split` and `--limit` restrict a run to the first transitions of one split in task id and
+step index order, for example `--split validation --limit 30` for a pilot.
+`--include-next-observation` adds the hint. `--gpu` names the GPU of the server, which the
+client cannot detect, and is stored with every label.
+
+| Key in `config/cuwm-labels.toml` | Supplied value                       | Meaning                                                    |
+| -------------------------------- | ------------------------------------ | ---------------------------------------------------------- |
+| `transitions`                    | `"data/interim/cuwm/sample.parquet"` | Transitions to label                                       |
+| `images_dir`                     | `"data/raw/agentnet/images"`         | Directory of the downloaded screenshots                    |
+| `server_config`                  | `"config/server-cuwm-teacher.json"`  | Server configuration the checkpoint and revision come from |
+| `workers`                        | `8`                                  | Requests in flight, batched by vLLM                        |
+| `[text_model]`                   | `cuwm-teacher` at `teacher-server`   | `OpenAITextModel` options, `max_tokens` 512                |
+
+`max_tokens` is the world model's own limit, so a label the student could not reproduce within
+512 tokens is rejected as truncated. Every screenshot of the run must be on disk before the first
+request. The script checks that the server serves the checkpoint named by `server_config`, so a
+label is never stored with the metadata of another model.
+
+Each record holds `task_id` and `index`, which identify the transition in `sample.parquet`,
+`split`, `label`, `has_next_observation_hint`, `labelled_at` and `teacher` with the
+`checkpoint`, `revision`, `served_model`, `gpu`, `max_tokens`, `temperature` and `template` of the
+request. A rerun with the same output skips the transitions already in it, so an interrupted run
+resumes. A truncated or rejected label is logged and not written, and a rerun requests it again.
 
 ## Layout
 
