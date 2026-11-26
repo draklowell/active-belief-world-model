@@ -235,3 +235,85 @@ def test_desktop_transition_requires_every_slot(missing: str) -> None:
     context = {name: value for name, value in DESKTOP_CONTEXT.items() if name != missing}
     with pytest.raises(UndefinedError, match=missing):
         render("cuwm-qwen3vl/textual_state_transition.j2", **context)
+
+
+ANNOTATION_CONTEXT = {
+    "image": "[Current UI screenshot]",
+    "next_image": "[Next UI screenshot]",
+    "action": (
+        '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [44, 117]}}'
+    ),
+    "gui_description": "Click the back button in the browser's navigation bar.",
+    "next_observation": None,
+}
+
+
+def render_annotation(**overrides: object) -> str:
+    """Render the teacher annotation prompt with the shared context and the given overrides."""
+    return render("cuwm-qwen3vl/transition_annotation.j2", **{**ANNOTATION_CONTEXT, **overrides})
+
+
+def test_annotation_quotes_the_complete_world_model_prompt() -> None:
+    """Ask the teacher to answer the exact inference prompt the trained world model receives."""
+    world_model_prompt = render(
+        "cuwm-qwen3vl/textual_state_transition.j2",
+        image=ANNOTATION_CONTEXT["image"],
+        action=ANNOTATION_CONTEXT["action"],
+        gui_description=ANNOTATION_CONTEXT["gui_description"],
+    )
+    prompt = render_annotation()
+    assert prompt.endswith(f"World model prompt:\n<<<\n{world_model_prompt}\n>>>")
+    assert prompt.index("[Current UI screenshot]") < prompt.index("[Next UI screenshot]")
+    assert prompt.count("[Next UI screenshot]") == 1
+
+
+def test_annotation_states_the_labelling_rules() -> None:
+    """Ground labels in the next screenshot without leaking the task or the hidden image."""
+    prompt = render_annotation()
+    assert "describe what the Next UI Screenshot shows" in prompt
+    assert "Do not mention the user's goal, the task, or possible next steps." in prompt
+    assert "never reveal that you saw the Next UI Screenshot" in prompt
+    assert "Ignore changes of the system clock in the top bar." in prompt
+    assert "Keep the answer under 300 words." in prompt
+
+
+def test_annotation_adds_the_next_observation_only_when_given() -> None:
+    """Include the AgentNet observation as an optional, untrusted hint for the pilot."""
+    observation = "Google's homepage with a search bar."
+    without_hint = render_annotation()
+    with_hint = render_annotation(next_observation=observation)
+    assert "Reference description" not in without_hint
+    assert f"trust the Next UI Screenshot wherever they disagree:\n{observation}\n\n" in with_hint
+    assert "\n\n\n" not in without_hint
+    assert "\n\n\n" not in with_hint
+
+
+def test_annotation_keeps_json_and_placeholder_like_text_opaque() -> None:
+    """Treat inserted actions, descriptions, and observations as literal text in one pass."""
+    action = '{"name": "computer_use", "arguments": {"action": "type", "text": "{{ image }}"}}'
+    description = "Type the literal text {next_image} without substitution."
+    observation = "A cell shows {% raw %} and {{ next_observation }}."
+    prompt = render_annotation(
+        action=action, gui_description=description, next_observation=observation
+    )
+    assert "Action:\n" + action in prompt
+    assert "GUI Action Description:\n" + description in prompt
+    assert observation in prompt
+
+
+@pytest.mark.parametrize("missing", ANNOTATION_CONTEXT)
+def test_annotation_requires_every_slot(missing: str) -> None:
+    """Reject a missing slot, including an omitted hint, through Jinja2 StrictUndefined."""
+    context = {name: value for name, value in ANNOTATION_CONTEXT.items() if name != missing}
+    with pytest.raises(UndefinedError, match=missing):
+        render("cuwm-qwen3vl/transition_annotation.j2", **context)
+
+
+def test_annotation_loads_outside_the_repository(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Load the annotation prompt and its included template from package resources."""
+    monkeypatch.chdir(tmp_path)
+    resource = files("prompts").joinpath("templates", "cuwm-qwen3vl", "transition_annotation.j2")
+    assert resource.is_file()
+    assert "World model prompt:\n<<<\n" in render_annotation()

@@ -1,0 +1,28 @@
+You are labelling training data for a World Model assistant for desktop applications. The world model receives the prompt quoted at the end, which shows only the current screenshot, and must describe the next screenshot. You also receive the actual Next UI Screenshot that followed the action, so your answer is the reference the world model is trained to reproduce.
+
+The two screenshots are attached in this order:
+
+Current UI Screenshot:
+{{ image }}
+
+Next UI Screenshot (the actual result of the action):
+{{ next_image }}
+{%- if next_observation is not none %}
+
+Reference description of the Next UI Screenshot, written by another model. It may contain errors and statements about the user's goal. Use it only to help read details, and trust the Next UI Screenshot wherever they disagree:
+{{ next_observation }}
+{%- endif %}
+
+Answer the world model prompt below as an ideal world model would, following all of its instructions on structure, order, quoting, and format, with these additional rules:
+- The quoted prompt says the Next UI Screenshot is not available. For you it is available, and every change you describe must be visible in it. Include details the action alone would not reveal, such as the contents of a newly opened page, menu, or dialog.
+- If the action or the GUI action description disagrees with the Next UI Screenshot, for example a click that hit a different control than described, describe what the Next UI Screenshot shows.
+- If the UI did not visibly change, state that the UI remains unchanged and name the element the action targeted.
+- Ignore changes of the system clock in the top bar.
+- Do not mention the user's goal, the task, or possible next steps.
+- Phrase the changes as the world model's prediction, using forms such as "is expected to open" or "will change to", and never reveal that you saw the Next UI Screenshot or a reference description.
+- Keep the answer under 300 words.
+
+World model prompt:
+<<<
+{% include "cuwm-qwen3vl/textual_state_transition.j2" %}
+>>>

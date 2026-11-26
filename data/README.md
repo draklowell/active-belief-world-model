@@ -135,6 +135,31 @@ comparison of the two screenshots, null on about a third of the sample), `judge_
 CRC32 and size of both screenshots, `exclusion_reason` and `split`. The `tool_arguments` keep the
 `action` argument so that either tool call layout of the agent can be rendered from them.
 
+### Annotation prompt
+
+The textual transition labels `Δ_t` are written by a teacher VLM that sees both screenshots,
+using [`cuwm-qwen3vl/transition_annotation.j2`](../src/prompts/templates/cuwm-qwen3vl/transition_annotation.j2).
+The template includes the world model's inference prompt,
+`cuwm-qwen3vl/textual_state_transition.j2`, verbatim and asks the teacher to answer it as an
+ideal world model would, so labels follow the same structure, region order and quoting rules
+the trained model is prompted with. Additional rules ground every change in the next
+screenshot, follow the screenshot when it disagrees with the action or its description, ignore
+the clock, exclude the task goal, and keep the answer under 300 words to fit the world model's
+512 token limit.
+
+| Slot               | Value                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| `image`            | Marker of the current screenshot, attached first                                          |
+| `next_image`       | Marker of the next screenshot, attached second                                            |
+| `action`           | `{"name": "computer_use", "arguments": ...}` built from `tool_arguments`, as at inference |
+| `gui_description`  | The AgentNet `action` text                                                                |
+| `next_observation` | AgentNet `observation` of the next step as an untrusted hint, or `None` to omit it        |
+
+The task instruction and `reflection` are not given to the teacher. `reflection` exists only for
+judged tasks, so its coverage depends on the domain, and both AgentNet texts mention the task
+goal. `next_observation` exists for every step and is used only to compare labelling with and
+without it.
+
 ## Layout
 
 | Path                 | Contents                                                         |
