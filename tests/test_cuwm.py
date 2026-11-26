@@ -38,6 +38,13 @@ def encode_png(size: tuple[int, int], color: str) -> bytes:
     return buffer.getvalue()
 
 
+def encode_jpeg(size: tuple[int, int], color: str) -> bytes:
+    """Encode a solid JPEG fixture to check conversion of non-PNG screenshots."""
+    buffer = BytesIO()
+    Image.new("RGB", size, color=color).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
 def test_predict_passes_original_screenshot_through_both_stages() -> None:
     """Keep the original screenshot and ordered transition between both model stages."""
     calls: list[tuple[str, bytes, str]] = []
@@ -155,6 +162,58 @@ def test_text_model_preserves_caller_prompts_after_transient_failures(
     assert description == "Predicted transition"
     assert retry_counts == ["0", "1", "2", "0"]
     assert len(retry_pauses) == 3
+
+
+def test_text_model_attaches_several_screenshots_in_order_before_the_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Send the current and next screenshots as the first and second images of one request."""
+    current_screenshot = encode_png((31, 17), "blue")
+    next_screenshot = encode_jpeg((40, 24), "red")
+    image_sizes: list[list[tuple[int, int]]] = []
+
+    def send_response(
+        client: httpx2.Client, request: httpx2.Request, **options: object
+    ) -> httpx2.Response:
+        content = json.loads(request.read())["messages"][1]["content"]
+        assert [part["type"] for part in content] == ["image_url", "image_url", "text"]
+        assert content[2] == {"type": "text", "text": "Describe the transition"}
+        sizes = []
+        for part in content[:2]:
+            header, encoded = part["image_url"]["url"].split(",", 1)
+            assert header == "data:image/png;base64"
+            with Image.open(BytesIO(base64.b64decode(encoded))) as image:
+                assert image.format == "PNG"
+                sizes.append(image.size)
+        image_sizes.append(sizes)
+        return httpx2.Response(
+            200,
+            request=request,
+            json={
+                "id": "text-response",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "teacher",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": " Labelled transition "},
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setenv("CUWM_TEST_API_KEY", "test-key")
+    monkeypatch.setattr(httpx2.Client, "send", send_response)
+    model = OpenAITextModel(
+        model="teacher", base_url="https://text.test/v1", api_key_env="CUWM_TEST_API_KEY"
+    )
+    description = model.generate_from_screenshots(
+        [current_screenshot, next_screenshot], "Describe the transition", system_prompt=""
+    )
+    assert description == "Labelled transition"
+    assert image_sizes == [[(31, 17), (40, 24)]]
 
 
 def test_stable_diffusion_edits_remotely_and_removes_only_alignment_padding(

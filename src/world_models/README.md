@@ -137,6 +137,13 @@ require OpenAI-hosted models. `OpenAITextModel` uses Chat Completions, while
 `StableDiffusionImageModel` uses the stable-diffusion.cpp OpenAI-compatible Image
 Editing endpoint with its server-specific parameter encoding.
 
+Outside the CUWM contract, `OpenAITextModel.generate_from_screenshots` takes a list of
+screenshots instead of one and attaches them in the given order before the prompt text,
+each re-encoded as PNG. The teacher that labels CUWM training transitions
+uses it to send the current and next screenshot; `generate` is the one-screenshot case.
+The server must accept that many images per request, for example vLLM's
+`--limit-mm-per-prompt`.
+
 The textual client reads `OPENAI_BASE_URL` and `OPENAI_API_KEY`. The image client
 reads `IMAGE_BASE_URL` and `IMAGE_API_KEY`. Set these through environment variables
 or the project's `.env`; both clients use `python-decouple`. Base URLs include the

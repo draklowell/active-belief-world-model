@@ -6,10 +6,25 @@ from ssl import SSLError
 import backoff
 from decouple import config
 from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAI, RateLimitError
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionContentPartParam, ChatCompletionMessageParam
 from PIL import Image
 
 logger = logging.getLogger(__name__)
+
+
+def encode_png_base64(screenshot: bytes) -> str:
+    """Re-encode an image as PNG and return it as base64 text for a data URL.
+
+    Args:
+        screenshot: Encoded image in any format Pillow reads.
+
+    Returns:
+        Base64 text of the PNG encoding.
+    """
+    with Image.open(BytesIO(screenshot)) as image:
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 class OpenAITextModel:
@@ -42,12 +57,6 @@ class OpenAITextModel:
             timeout=timeout,
         )
 
-    @backoff.on_exception(
-        backoff.constant,
-        (SSLError, RateLimitError, BadRequestError, InternalServerError, APIConnectionError),
-        interval=30,
-        max_tries=5,
-    )
     def generate(self, screenshot: bytes, prompt: str, *, system_prompt: str) -> str:
         """Request text using the supplied prompts and full-resolution screenshot.
 
@@ -59,27 +68,43 @@ class OpenAITextModel:
         Returns:
             Nonempty generated text.
         """
-        with Image.open(BytesIO(screenshot)) as image:
-            buffer = BytesIO()
-            image.save(buffer, format="PNG")
-        encoded_image = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return self.generate_from_screenshots([screenshot], prompt, system_prompt=system_prompt)
+
+    @backoff.on_exception(
+        backoff.constant,
+        (SSLError, RateLimitError, BadRequestError, InternalServerError, APIConnectionError),
+        interval=30,
+        max_tries=5,
+    )
+    def generate_from_screenshots(
+        self, screenshots: list[bytes], prompt: str, *, system_prompt: str
+    ) -> str:
+        """Request text using the supplied prompts and full-resolution screenshots.
+
+        The screenshots are attached in the given order before the prompt, so the prompt can refer
+        to them as the first, second, and later images.
+
+        Args:
+            screenshots: Encoded images, such as the current and the next GUI state.
+            prompt: User instruction supplied by the caller.
+            system_prompt: Domain instructions supplied by the caller.
+
+        Returns:
+            Nonempty generated text.
+        """
+        content: list[ChatCompletionContentPartParam] = [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{encode_png_base64(screenshot)}"},
+            }
+            for screenshot in screenshots
+        ]
+        content.append({"type": "text", "text": prompt})
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{encoded_image}"},
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt,
-                    },
-                ],
-            },
+            {"role": "user", "content": content},
         ]
-        logger.info("Requesting text from %s", self.model)
+        logger.info("Requesting text with %d screenshots from %s", len(screenshots), self.model)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
