@@ -75,7 +75,7 @@ Each call to `predict` performs one step:
 
 `predict` returns a JSON trace with every candidate, its predicted transition
 `Δ_i(t)`, and the raw selection response, which `scripts/benchmark.py` records
-in the MLflow `predict` span. Exceptions from CUWM, such as a truncated
+in the `predict` span of the experiment log. Exceptions from CUWM, such as a truncated
 transition, propagate and fail the task.
 
 ## Validation

@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import sys
-import tempfile
 import tomllib
 from concurrent.futures import ProcessPoolExecutor
 from importlib import import_module
@@ -14,39 +13,14 @@ from multiprocessing import get_context
 from pathlib import Path
 from typing import TypedDict, cast
 
-import mlflow
 import polars as pl
 from decouple import config
 from desktop_env.desktop_env import DesktopEnv
-from mlflow.entities import SpanType
-from mlflow.tracing.attachments import Attachment
 
 from agents.base import Agent
+from experiment_log import ExperimentLog, TaskLog, span
 
 logger = logging.getLogger(__name__)
-
-
-def init_mlflow(mlflow_tracking_uri: str) -> bool:
-    """Initialize MLflow tracking server and autologging.
-
-    Args:
-        mlflow_tracking_uri: MLflow tracking server URI, or "disabled" to disable MLflow entirely.
-
-    Returns:
-        True if MLflow is enabled, False otherwise.
-    """
-    if mlflow_tracking_uri == "memory":
-        mlflow_tracking_uri = "sqlite:///:memory:"
-
-    if mlflow_tracking_uri == "disabled":
-        mlflow.tracing.disable()
-
-        return False
-    else:
-        mlflow.set_tracking_uri(mlflow_tracking_uri)
-        mlflow.openai.autolog()
-
-        return True
 
 
 class SettingsDict(TypedDict):
@@ -59,8 +33,6 @@ class SettingsDict(TypedDict):
     enable_proxy: bool
     password: str
     num_envs: int
-    mlflow_tracking_uri: str
-    mlflow_enabled: bool
 
 
 class TaskResultDict(TypedDict):
@@ -101,19 +73,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiment-name",
         default=None,
-        help="Optional suffix for the MLflow experiment name.",
+        help="Optional suffix for the experiment name.",
     )
     parser.add_argument(
         "--experiment-tags",
         nargs="+",
         metavar="KEY=VALUE",
         default=[],
-        help="Optional tags for the MLflow experiment.",
+        help="Optional tags recorded in experiment.json.",
     )
     parser.add_argument(
-        "--mlflow",
-        default=None,
-        help="MLflow tracking URI, or 'disabled' to disable MLflow entirely.",
+        "--output-dir",
+        type=Path,
+        default=config("BENCHMARK_OUTPUT_DIR", default=".artifacts/experiments", cast=Path),
+        help="Directory that receives one folder per experiment.",
     )
 
     args = parser.parse_args()
@@ -142,25 +115,24 @@ def load_agent_class(agent_path: str) -> type[Agent]:
     return agent_class
 
 
-def run_task(agent: Agent, env: DesktopEnv, task: dict, settings: SettingsDict) -> TaskResultDict:
-    """Run one task and save its trajectory, screenshots, recording, and score.
+def run_task(
+    agent: Agent, env: DesktopEnv, task: dict, settings: SettingsDict, task_log: TaskLog
+) -> TaskResultDict:
+    """Run one task and record its trajectory, screenshots, recording, and score.
 
     Args:
         agent: Agent reused across tasks in this worker.
         env: Desktop environment owned by this worker.
         task: OSWorld task configuration, including its instruction and evaluator.
         settings: Benchmark settings.
+        task_log: Log of the task that receives the recording.
 
     Returns:
         The environment's evaluation score.
     """
-    with mlflow.start_span("reset", span_type=SpanType.TOOL) as span:
+    with span("reset", "TOOL") as reset_span:
         observation = env.reset(task_config=task)
-        observation_attachment = Attachment(
-            content_type="image/png", content_bytes=observation["screenshot"]
-        )
-
-        span.set_outputs({"observation": observation_attachment})
+        reset_span.outputs = {"observation": observation["screenshot"]}
 
     agent.reset()
 
@@ -168,40 +140,37 @@ def run_task(agent: Agent, env: DesktopEnv, task: dict, settings: SettingsDict) 
 
     try:
         for step in range(1, settings["max_steps"] + 1):
-            with mlflow.start_span(f"step_{step}", span_type=SpanType.CHAIN):
+            with span(f"step_{step}", "CHAIN"):
 
-                with mlflow.start_span("predict", span_type=SpanType.AGENT) as span:
+                with span(
+                    "predict",
+                    "AGENT",
+                    inputs={
+                        "instruction": task["instruction"],
+                        "observation": observation["screenshot"],
+                    },
+                ) as predict_span:
                     response, actions = agent.predict(task["instruction"], observation)
-                    span.set_inputs(
-                        {"instruction": task["instruction"], "observation": observation_attachment}
-                    )
-                    span.set_outputs({"response": response, "actions": actions})
+                    predict_span.outputs = {"response": response, "actions": actions}
 
                 is_done = False
                 for action_index, action in enumerate(actions, start=1):
                     logger.info("Task %s, step %d: %s", task["id"], step, action)
 
-                    with mlflow.start_span(
-                        f"action_{action_index}", span_type=SpanType.TOOL
-                    ) as span:
+                    with span(
+                        f"action_{action_index}",
+                        "TOOL",
+                        inputs={"action": action, "pause": settings["sleep_after_execution"]},
+                    ) as action_span:
                         observation, reward, is_done, info = env.step(
                             action, settings["sleep_after_execution"]
                         )
-                        observation_attachment = Attachment(
-                            content_type="image/png", content_bytes=observation["screenshot"]
-                        )
-
-                        span.set_inputs(
-                            {"action": action, "pause": settings["sleep_after_execution"]}
-                        )
-                        span.set_outputs(
-                            {
-                                "reward": reward,
-                                "done": is_done,
-                                "info": info,
-                                "observation": observation_attachment,
-                            }
-                        )
+                        action_span.outputs = {
+                            "reward": reward,
+                            "done": is_done,
+                            "info": info,
+                            "observation": observation["screenshot"],
+                        }
 
                     if is_done:
                         break
@@ -217,14 +186,9 @@ def run_task(agent: Agent, env: DesktopEnv, task: dict, settings: SettingsDict) 
         }
 
     finally:
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_file:
-            env.controller.end_recording(temp_file.name)
-            temp_file.flush()
-
-            video_attachment = Attachment(content_type="video/mp4", content_bytes=temp_file.read())
-
-        with mlflow.start_span("record_video", span_type=SpanType.TOOL) as span:
-            span.set_outputs({"video": video_attachment})
+        with span("record_video", "TOOL") as video_span:
+            env.controller.end_recording(str(task_log.directory / "recording.mp4"))
+            video_span.outputs = {"video": "recording.mp4"}
 
 
 def run_tasks(
@@ -232,7 +196,7 @@ def run_tasks(
     agent_class: type[Agent],
     agent_config: dict,
     tasks: list[tuple[str, str, dict]],
-    experiment_id: str,
+    experiment_root: Path,
 ) -> list[TaskResultDict]:
     """Reuse one agent and environment to evaluate a worker's assigned tasks.
 
@@ -241,7 +205,7 @@ def run_tasks(
         agent_class: Agent subclass to instantiate with the configuration dictionary.
         agent_config: Agent settings loaded from TOML without modification.
         tasks: Domain, task ID, and task configuration triples assigned to this worker.
-        experiment_id: The ID of the MLflow experiment.
+        experiment_root: Experiment directory that receives the task records.
 
     Returns:
         One score per task, including zero for tasks that failed with an exception.
@@ -254,11 +218,8 @@ def run_tasks(
         force=True,
     )
 
-    logging.info("Using MLFlow tracking server at %s", settings["mlflow_tracking_uri"])
-
-    init_mlflow(settings["mlflow_tracking_uri"])
-    if settings["mlflow_enabled"]:
-        mlflow.set_experiment(experiment_id=experiment_id)
+    logger.info("Writing task records to %s", experiment_root)
+    experiment = ExperimentLog(experiment_root)
 
     agent = agent_class(agent_config)
     snapshot_name = "init_state"
@@ -287,17 +248,14 @@ def run_tasks(
 
             try:
                 with (
-                    mlflow.tracing.context(
-                        tags={"domain": domain, "task_id": task_id},
-                        enabled=settings["mlflow_enabled"],
-                    ),
-                    mlflow.start_span("task", span_type=SpanType.CHAIN) as task_span,
+                    experiment.start_task(domain, task_id) as task_log,
+                    span(
+                        "task",
+                        "CHAIN",
+                        inputs={"task": task, "settings": settings, "agent_config": agent_config},
+                    ) as task_span,
                 ):
-                    task_span.set_inputs(
-                        {"task": task, "settings": settings, "agent_config": agent_config}
-                    )
-
-                    task_result = run_task(agent, env, task, settings)
+                    task_result = run_task(agent, env, task, settings, task_log)
 
                     logger.info(
                         "Results for %s/%s: score=%.4f steps=%d",
@@ -308,7 +266,7 @@ def run_tasks(
                     )
                     task_results.append(task_result)
 
-                    task_span.set_outputs(task_result)
+                    task_span.outputs = task_result
             except Exception:
                 logger.exception("Task %s/%s failed", domain, task_id)
 
@@ -328,11 +286,6 @@ def main() -> None:
     )
 
     args = parse_args()
-
-    if args.mlflow is None:
-        args.mlflow = config("MLFLOW_TRACKING_URI", default="disabled")
-
-    mlflow_enabled = init_mlflow(args.mlflow)
 
     agent_class = load_agent_class(args.agent_path)
     with args.agent_config.open("rb") as agent_config_file:
@@ -360,14 +313,16 @@ def main() -> None:
     experiment_name = f"benchmark_{args.agent_path}"
     if args.experiment_name:
         experiment_name = f"{experiment_name}_{args.experiment_name}"
-    experiment_name = f"{experiment_name}_{dt.datetime.now(dt.UTC).strftime('%Y%m%d_%H%M%S')}"
+    created_at = dt.datetime.now(dt.UTC)
+    experiment_name = f"{experiment_name}_{created_at.strftime('%Y%m%d_%H%M%S')}"
+    experiment = ExperimentLog(args.output_dir / experiment_name)
 
     num_envs = min(args.num_envs, len(tasks))
     logger.info(
         "Running %d tasks in %d environments. Results: %s",
         len(tasks),
         num_envs,
-        experiment_name,
+        experiment.root,
     )
 
     settings = cast(
@@ -381,20 +336,24 @@ def main() -> None:
             "password": args.password,
             "max_steps": args.max_steps,
             "sleep_after_execution": args.sleep_after_execution,
-            "mlflow_tracking_uri": args.mlflow,
-            "mlflow_enabled": mlflow_enabled,
         },
     )
 
-    if settings["mlflow_enabled"]:
-        tags = {"agent": args.agent_path}
-        for tag in args.experiment_tags:
-            key, value = tag.split("=", 1)
-            tags[key] = value
+    tags = {"agent": args.agent_path}
+    for tag in args.experiment_tags:
+        key, value = tag.split("=", 1)
+        tags[key] = value
 
-        experiment_id = mlflow.create_experiment(tags=tags, name=experiment_name)
-    else:
-        experiment_id = ""
+    experiment.write_metadata(
+        {
+            "name": experiment_name,
+            "created_at": created_at.isoformat(),
+            "tags": tags,
+            "settings": settings,
+            "agent_config": agent_config,
+            "tasks": manifest,
+        }
+    )
 
     with ProcessPoolExecutor(max_workers=num_envs, mp_context=get_context("spawn")) as executor:
         futures = [
@@ -404,7 +363,7 @@ def main() -> None:
                 agent_class,
                 agent_config,
                 tasks[index::num_envs],
-                experiment_id,
+                experiment.root,
             )
             for index in range(num_envs)
         ]
@@ -419,17 +378,15 @@ def main() -> None:
     logger.info("Average steps: %.2f", average_steps)
     logger.info("Minimum steps: %d", minimum_steps)
 
-    if settings["mlflow_enabled"]:
-        with mlflow.start_run(experiment_id=experiment_id, run_name="summary"):
-            mlflow.log_metrics(
-                {
-                    "average_score": success_rate,
-                    "average_steps": average_steps,
-                    "minimum_steps": minimum_steps,
-                    "num_tasks": len(task_results),
-                }
-            )
-            mlflow.log_table(dataframe.to_dict(as_series=False), artifact_file="task_results.json")
+    experiment.write_summary(
+        {
+            "average_score": success_rate,
+            "average_steps": average_steps,
+            "minimum_steps": minimum_steps,
+            "num_tasks": len(task_results),
+        },
+        dataframe.to_dicts(),
+    )
 
 
 if __name__ == "__main__":

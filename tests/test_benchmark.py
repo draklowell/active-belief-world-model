@@ -7,10 +7,10 @@ from types import ModuleType
 from typing import cast
 from unittest.mock import MagicMock, call
 
-import mlflow
 import pytest
 
 from agents.base import Agent
+from experiment_log import ExperimentLog, TaskLog
 from scripts import benchmark
 
 AGENT_CONFIG_TOML = """model = "qwen3-vl"
@@ -65,8 +65,6 @@ def settings(args: argparse.Namespace) -> benchmark.SettingsDict:
             "headless": args.headless,
             "enable_proxy": args.enable_proxy,
             "password": args.password,
-            "mlflow_tracking_uri": args.mlflow,
-            "mlflow_enabled": args.mlflow != "disabled",
         },
     )
 
@@ -89,8 +87,27 @@ def args(tmp_path: Path) -> argparse.Namespace:
         enable_proxy=True,
         experiment_name=None,
         experiment_tags=[],
-        mlflow="disabled",
+        output_dir=tmp_path / "experiments",
     )
+
+
+@pytest.fixture
+def experiment(tmp_path: Path) -> ExperimentLog:
+    """Provide an experiment log in a temporary directory."""
+    return ExperimentLog(tmp_path / "experiment")
+
+
+def read_spans(task_log: TaskLog) -> list[dict]:
+    """Read the finished spans of a task.
+
+    Args:
+        task_log: Log of the task.
+
+    Returns:
+        Span records in completion order.
+    """
+    lines = (task_log.directory / "spans.jsonl").read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines]
 
 
 @pytest.fixture
@@ -204,7 +221,11 @@ def test_load_agent_class_requires_dotted_path() -> None:
 
 
 def test_run_task_tracks_actions_and_stops_when_done(
-    args: argparse.Namespace, env: MagicMock, task: dict, settings: benchmark.SettingsDict
+    args: argparse.Namespace,
+    env: MagicMock,
+    task: dict,
+    settings: benchmark.SettingsDict,
+    experiment: ExperimentLog,
 ) -> None:
     """Preserve action steps and stop as soon as the environment marks the task complete."""
     agent = DummyAgent({"actions": ["pyautogui.click()", "DONE", "unused"]})
@@ -212,8 +233,8 @@ def test_run_task_tracks_actions_and_stops_when_done(
         ({"screenshot": b"clicked"}, 0, False, {}),
         ({"screenshot": b"done"}, 0, True, {"done": True}),
     ]
-    mlflow.tracing.disable()
-    result = benchmark.run_task(agent, env, task, settings)
+    with experiment.start_task("chrome", "task-1") as task_log:
+        result = benchmark.run_task(agent, env, task, settings, task_log)
     assert result["score"] == 1.0
     assert result["domain"] == "chrome"
     assert result["task_id"] == "task-1"
@@ -224,18 +245,42 @@ def test_run_task_tracks_actions_and_stops_when_done(
         call("DONE", 0.25),
     ]
     env.controller.start_recording.assert_called_once_with()
-    env.controller.end_recording.assert_called_once()
+    env.controller.end_recording.assert_called_once_with(str(task_log.directory / "recording.mp4"))
     env.evaluate.assert_called_once_with()
 
 
+def test_run_task_records_span_tree_with_shared_images(
+    env: MagicMock, task: dict, settings: benchmark.SettingsDict, experiment: ExperimentLog
+) -> None:
+    """Record the nested span tree and store each distinct screenshot once."""
+    with experiment.start_task("chrome", "task-1") as task_log:
+        benchmark.run_task(DummyAgent(AGENT_CONFIG), env, task, settings, task_log)
+    spans = {record["name"]: record for record in read_spans(task_log)}
+    assert list(spans) == ["reset", "predict", "action_1", "step_1", "record_video"]
+    assert spans["reset"]["parent_id"] is None
+    assert spans["predict"]["parent_id"] == spans["step_1"]["span_id"]
+    assert spans["action_1"]["parent_id"] == spans["step_1"]["span_id"]
+    assert spans["predict"]["outputs"] == {"response": "response", "actions": ["DONE"]}
+    initial_image = spans["reset"]["outputs"]["observation"]
+    assert spans["predict"]["inputs"]["observation"] == initial_image
+    assert (experiment.root / initial_image["image"]).read_bytes() == b"initial"
+    assert spans["action_1"]["outputs"]["observation"] != initial_image
+    assert len(list((experiment.root / "images").iterdir())) == 2
+    assert spans["record_video"]["outputs"] == {"video": "recording.mp4"}
+
+
 def test_run_task_respects_prediction_limit(
-    args: argparse.Namespace, env: MagicMock, task: dict, settings: benchmark.SettingsDict
+    args: argparse.Namespace,
+    env: MagicMock,
+    task: dict,
+    settings: benchmark.SettingsDict,
+    experiment: ExperimentLog,
 ) -> None:
     """Evaluate after the prediction budget is exhausted."""
     env.step.return_value = ({"screenshot": b"step"}, 0, False, {})
     agent = DummyAgent({"actions": ["WAIT"]})
-    mlflow.tracing.disable()
-    benchmark.run_task(agent, env, task, settings)
+    with experiment.start_task("chrome", "task-1") as task_log:
+        benchmark.run_task(agent, env, task, settings, task_log)
     assert env.step.call_count == args.max_steps
     env.evaluate.assert_called_once_with()
 
@@ -246,14 +291,20 @@ def test_run_task_ends_recording_on_error(
     env: MagicMock,
     task: dict,
     settings: benchmark.SettingsDict,
+    experiment: ExperimentLog,
     failing_method: str,
 ) -> None:
     """Close recordings without marking failed tasks complete."""
     getattr(env, failing_method).side_effect = RuntimeError("failed")
-    mlflow.tracing.disable()
-    with pytest.raises(RuntimeError, match="failed"):
-        benchmark.run_task(DummyAgent(AGENT_CONFIG), env, task, settings)
+    with (
+        pytest.raises(RuntimeError, match="failed"),
+        experiment.start_task("chrome", "task-1") as task_log,
+    ):
+        benchmark.run_task(DummyAgent(AGENT_CONFIG), env, task, settings, task_log)
     env.controller.end_recording.assert_called_once()
+    task_record = json.loads((task_log.directory / "task.json").read_text(encoding="utf-8"))
+    assert task_record["status"] == "ERROR"
+    assert "RuntimeError: failed" in task_record["error"]
 
 
 @pytest.mark.parametrize("provider_name", ["docker", "aws"])
@@ -264,6 +315,7 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
     monkeypatch: pytest.MonkeyPatch,
     provider_name: str,
     settings: benchmark.SettingsDict,
+    experiment: ExperimentLog,
 ) -> None:
     """Reuse the VM and keep successful task results while logging task failures."""
     environment_class = MagicMock(return_value=env)
@@ -281,9 +333,16 @@ def test_run_tasks_reuses_environment_and_continues_after_error(
         DummyAgent,
         AGENT_CONFIG,
         [("chrome", "failed", task), ("chrome", "passed", task)],
-        "test-experiment",
+        experiment.root,
     )
     assert [result["score"] for result in task_results] == [1.0]
+    statuses = {
+        task_id: json.loads(
+            (experiment.root / "tasks" / task_id / "task.json").read_text(encoding="utf-8")
+        )["status"]
+        for task_id in ["failed", "passed"]
+    }
+    assert statuses == {"failed": "ERROR", "passed": "OK"}
     environment_class.assert_called_once_with(
         provider_name=provider_name,
         region="us-east-1",
@@ -325,6 +384,14 @@ def test_main_distributes_tasks_across_workers(
     assert submissions[0].args[1] is not None
     assert submissions[0].args[2] is DummyAgent
     assert submissions[0].args[3] == AGENT_CONFIG
+    experiment_root = submissions[0].args[5]
+    assert experiment_root.parent == args.output_dir
+    metadata = json.loads((experiment_root / "experiment.json").read_text(encoding="utf-8"))
+    assert metadata["tags"] == {"agent": args.agent_path}
+    assert metadata["tasks"] == {"chrome": ["a", "b", "c"]}
+    summary = json.loads((experiment_root / "summary.json").read_text(encoding="utf-8"))
+    assert summary["metrics"]["num_tasks"] == 2
+    assert summary["task_results"][0]["task_id"] == "a"
 
 
 def test_main_skips_environment_for_empty_manifest(

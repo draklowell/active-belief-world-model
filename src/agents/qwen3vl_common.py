@@ -10,6 +10,7 @@ import openai
 from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
 
+from experiment_log import span
 from prompts import render
 
 
@@ -200,6 +201,8 @@ def request_chat_completion(
 ) -> str:
     """Call an OpenAI-compatible endpoint with chat completion messages.
 
+    The request and the full response are recorded as a `chat_completion` span.
+
     Args:
         client: OpenAI-compatible client connected to the served Qwen3-VL model.
         messages: List of message dictionaries following the OpenAI chat schema.
@@ -211,13 +214,25 @@ def request_chat_completion(
     Returns:
         The completion text content from the model.
     """
-    response = client.chat.completions.create(
-        model=model,
-        messages=cast(list[ChatCompletionMessageParam], messages),
-        max_tokens=max_tokens,
-        temperature=temperature,
-        top_p=top_p,
-    )
+    with span(
+        "chat_completion",
+        "CHAT_MODEL",
+        inputs={
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+        },
+    ) as completion_span:
+        response = client.chat.completions.create(
+            model=model,
+            messages=cast(list[ChatCompletionMessageParam], messages),
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+        completion_span.outputs = response
     content = response.choices[0].message.content
     return content or ""
 
