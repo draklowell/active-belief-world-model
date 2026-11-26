@@ -31,6 +31,9 @@ class ServerConfig:
         socks5_port: SOCKS5 proxy port exposed by tailscaled.
         skip_install: Skip dependency installation steps when True.
         enforce_eager: Whether to enforce eager execution in vLLM (may reduce memory usage).
+        revision: Hugging Face commit of the model to serve, or None for the latest.
+        limit_mm_per_prompt: Maximum items per modality in one request, such as
+            {"image": 2}, or None for the vLLM default.
     """
 
     hostname: str
@@ -43,6 +46,8 @@ class ServerConfig:
     socks5_port: int = 1055
     skip_install: bool = False
     enforce_eager: bool = True
+    revision: str | None = None
+    limit_mm_per_prompt: dict[str, int] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "ServerConfig":
@@ -258,6 +263,8 @@ class VLLMManager:
         host: The host address the inference server binds to.
         max_model_len: The maximum sequence length in tokens.
         enforce_eager: Whether to enforce eager execution in vLLM (may reduce memory usage).
+        revision: The Hugging Face commit of the model, or None for the latest.
+        limit_mm_per_prompt: Maximum items per modality in one request, or None for the default.
 
     Args:
         model: The Hugging Face model identifier.
@@ -268,6 +275,9 @@ class VLLMManager:
         host: Bind address for the inference server.
         max_model_len: Maximum context length in tokens.
         enforce_eager: Whether to enforce eager execution in vLLM (may reduce memory usage).
+        revision: Hugging Face commit of the model, or None for the latest.
+        limit_mm_per_prompt: Maximum items per modality in one request, such as {"image": 2},
+            or None for the vLLM default.
     """
 
     model: str
@@ -278,6 +288,8 @@ class VLLMManager:
     host: str
     max_model_len: int
     enforce_eager: bool
+    revision: str | None
+    limit_mm_per_prompt: dict[str, int] | None
 
     def __init__(
         self,
@@ -289,6 +301,8 @@ class VLLMManager:
         host: str = "0.0.0.0",
         max_model_len: int = 16384,
         enforce_eager: bool = True,
+        revision: str | None = None,
+        limit_mm_per_prompt: dict[str, int] | None = None,
     ) -> None:
         self.model = model
         self.served_model_name = served_model_name
@@ -298,6 +312,8 @@ class VLLMManager:
         self.host = host
         self.max_model_len = max_model_len
         self.enforce_eager = enforce_eager
+        self.revision = revision
+        self.limit_mm_per_prompt = limit_mm_per_prompt
         self._log = logging.getLogger("VLLMManager")
         self._process: subprocess.Popen | None = None
         self._managed_thread: threading.Thread | None = None
@@ -318,6 +334,35 @@ class VLLMManager:
             raise subprocess.CalledProcessError(process.returncode, process.args)
         self._log.info("vllm and vllm-omni installed successfully.")
 
+    def build_serve_command(self) -> list[str]:
+        """Build the `vllm serve` command line, omitting options left at their vLLM defaults.
+
+        Returns:
+            Program name and arguments of the vLLM server process.
+        """
+        command = [
+            "vllm",
+            "serve",
+            self.model,
+            "--port",
+            str(self.port),
+            "--host",
+            self.host,
+            "--max-model-len",
+            str(self.max_model_len),
+            "--served-model-name",
+            self.served_model_name,
+            "--tensor-parallel-size",
+            str(self.tensor_parallel_size),
+        ]
+        if self.enforce_eager:
+            command.append("--enforce-eager")
+        if self.revision is not None:
+            command.extend(["--revision", self.revision])
+        if self.limit_mm_per_prompt is not None:
+            command.extend(["--limit-mm-per-prompt", json.dumps(self.limit_mm_per_prompt)])
+        return command
+
     def _stream_logs(self, process: subprocess.Popen) -> None:
         if process.stdout is None:
             return
@@ -333,27 +378,8 @@ class VLLMManager:
             self.tensor_parallel_size,
         )
 
-        enforce_eager = []
-        if self.enforce_eager:
-            enforce_eager = ["--enforce-eager"]
-
         self._process = subprocess.Popen(
-            [
-                "vllm",
-                "serve",
-                self.model,
-                "--port",
-                str(self.port),
-                "--host",
-                self.host,
-                *enforce_eager,
-                "--max-model-len",
-                str(self.max_model_len),
-                "--served-model-name",
-                self.served_model_name,
-                "--tensor-parallel-size",
-                str(self.tensor_parallel_size),
-            ],
+            self.build_serve_command(),
             env={**os.environ, "VLLM_TORCH_COMPILE": "0", "HF_TOKEN": self.hf_token},
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -433,6 +459,8 @@ def main() -> None:
         host=config.host,
         max_model_len=config.max_model_len,
         enforce_eager=config.enforce_eager,
+        revision=config.revision,
+        limit_mm_per_prompt=config.limit_mm_per_prompt,
     )
 
     if not config.skip_install:

@@ -160,6 +160,32 @@ judged tasks, so its coverage depends on the domain, and both AgentNet texts men
 goal. `next_observation` exists for every step and is used only to compare labelling with and
 without it.
 
+### Teacher server
+
+The teacher runs on vLLM through the project's inference server launcher, on a Colab G4 GPU
+with an A100 80GB as backup:
+
+```bash
+uv run python scripts/host_inference_server.py \
+  --config config/server-cuwm-teacher.json --backend colab --accelerator gpu/G4
+```
+
+Use `--accelerator gpu/A100` for the backup. The launcher needs the `colab` CLI logged in and
+`TAILSCALE_AUTH_KEY` and `HF_TOKEN` in `.env`. The server joins Tailscale as `teacher-server`,
+so clients use `http://teacher-server:8000/v1`.
+
+| Key in `config/server-cuwm-teacher.json` | Value                                      | Reason                                                   |
+| ---------------------------------------- | ------------------------------------------ | -------------------------------------------------------- |
+| `model`                                  | `Qwen/Qwen3-VL-30B-A3B-Instruct-FP8`       | Teacher checkpoint, 32.3 GB of FP8 weights               |
+| `revision`                               | `d9748a51ae66354c4dad665aab2c71f26cf2c8cd` | Every label comes from the same weights                  |
+| `served_model_name`                      | `cuwm-teacher`                             | Clients keep one name when the pilot swaps the teacher   |
+| `max_model_len`                          | 16384                                      | Two 1920x1080 screenshots, the prompt and the answer fit |
+| `enforce_eager`                          | `false`                                    | CUDA graphs for throughput on a single large GPU         |
+| `limit_mm_per_prompt`                    | `{"image": 2}`                             | Current and next screenshot in one request               |
+
+`revision` and `limit_mm_per_prompt` are optional server options that map to the vLLM flags
+`--revision` and `--limit-mm-per-prompt`; other server configurations omit them.
+
 ## Layout
 
 | Path                 | Contents                                                         |

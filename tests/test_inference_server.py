@@ -253,3 +253,96 @@ class TestColabSession:
         )
         args = orchestrator.parse_args()
         assert args.session == "inference-server"
+
+
+class TestVLLMServeCommand:
+    def test_defaults_keep_the_original_flags(self, core: ModuleType) -> None:
+        manager = core.VLLMManager(model="org/model", served_model_name="alias", hf_token="")
+        command = manager.build_serve_command()
+        assert command[:3] == ["vllm", "serve", "org/model"]
+        assert "--enforce-eager" in command
+        assert "--revision" not in command
+        assert "--limit-mm-per-prompt" not in command
+        flags = dict(zip(command[3::2], command[4::2]))
+        assert flags["--max-model-len"] == "16384"
+        assert flags["--served-model-name"] == "alias"
+        assert flags["--tensor-parallel-size"] == "1"
+
+    def test_teacher_options_become_flags(self, core: ModuleType) -> None:
+        manager = core.VLLMManager(
+            model="org/model",
+            served_model_name="alias",
+            hf_token="",
+            enforce_eager=False,
+            revision="abc123",
+            limit_mm_per_prompt={"image": 2},
+        )
+        command = manager.build_serve_command()
+        assert "--enforce-eager" not in command
+        assert command[command.index("--revision") + 1] == "abc123"
+        limit = command[command.index("--limit-mm-per-prompt") + 1]
+        assert json.loads(limit) == {"image": 2}
+
+    def test_server_config_defaults_leave_new_options_unset(self, core: ModuleType) -> None:
+        config = core.ServerConfig.from_dict(MINIMAL_CONFIG)
+        assert config.revision is None
+        assert config.limit_mm_per_prompt is None
+
+
+class TestRepositoryServerConfigs:
+    @pytest.mark.parametrize(
+        "path", sorted((REPO_ROOT / "config").glob("server-*.json")), ids=lambda path: path.name
+    )
+    def test_every_key_is_a_server_config_field(self, core: ModuleType, path: Path) -> None:
+        data = json.loads(path.read_text())
+        fields = {field.name for field in core.dataclasses.fields(core.ServerConfig)}
+        assert set(data) <= fields
+        assert core.ServerConfig.from_dict(data).model == data["model"]
+
+    def test_teacher_serves_two_images_per_request(self, core: ModuleType) -> None:
+        data = json.loads((REPO_ROOT / "config" / "server-cuwm-teacher.json").read_text())
+        config = core.ServerConfig.from_dict(data)
+        assert config.limit_mm_per_prompt == {"image": 2}
+        assert config.revision is not None
+        assert config.enforce_eager is False
+
+
+class TestColabRun:
+    def test_run_disables_the_output_timeout_and_forwards_the_gpu(
+        self, orchestrator: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        commands: list[list[str]] = []
+
+        class FinishedProcess:
+            stdout: list[bytes] = []
+            returncode = 0
+
+            def __init__(self, command: list[str], **options: object) -> None:
+                commands.append(command)
+
+            def wait(self) -> int:
+                return self.returncode
+
+        monkeypatch.setattr(orchestrator.subprocess, "Popen", FinishedProcess)
+        monkeypatch.setattr(orchestrator, "embed_config_to_core", lambda *arguments: None)
+        monkeypatch.setattr(orchestrator, "load_secrets", lambda: {})
+        monkeypatch.setattr(orchestrator, "stop_colab_session", lambda session_name: None)
+        args = orchestrator.argparse.Namespace(
+            config=str(FIXTURES_DIR / "dummy_config.json"),
+            accelerator="gpu/G4",
+            session="teacher",
+        )
+        orchestrator.run_colab(args)
+        assert commands == [
+            [
+                "colab",
+                "run",
+                "--gpu",
+                "G4",
+                "--timeout",
+                "0",
+                "-s",
+                "teacher",
+                str(orchestrator.CORE_PATH),
+            ]
+        ]

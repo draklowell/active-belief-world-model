@@ -1,0 +1,11 @@
+{
+  "hostname": "teacher-server",
+  "model": "Qwen/Qwen3-VL-30B-A3B-Instruct-FP8",
+  "revision": "d9748a51ae66354c4dad665aab2c71f26cf2c8cd",
+  "served_model_name": "cuwm-teacher",
+  "max_model_len": 16384,
+  "enforce_eager": false,
+  "limit_mm_per_prompt": {
+    "image": 2
+  }
+}

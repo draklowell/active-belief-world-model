@@ -226,7 +226,7 @@ def run_colab(args: argparse.Namespace) -> None:
     session_name = args.session
     log.info("Starting Colab run (session=%s)...", session_name)
     process = subprocess.Popen(
-        ["colab", "run", *accelerator, "-s", session_name, str(CORE_PATH)],
+        ["colab", "run", *accelerator, "--timeout", "0", "-s", session_name, str(CORE_PATH)],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
