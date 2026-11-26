@@ -87,7 +87,12 @@ def test_action_validator_uses_agent_schema() -> None:
 
 def step(index: int, image: str, code: str) -> dict:
     """Build one AgentNet trajectory step with an action description."""
-    value = {"code": code, "action": f"Do step {index}.", "reflection": None}
+    value = {
+        "code": code,
+        "action": f"Do step {index}.",
+        "reflection": None,
+        "observation": f"Screen of step {index}.",
+    }
     return {"index": index, "image": image, "value": value}
 
 
@@ -158,6 +163,11 @@ def test_build_transitions_assigns_exclusion_reasons() -> None:
     assert first["next_image"] == "a1"
     assert first["tool_arguments"] == '{"action": "left_click", "coordinate": [500, 500]}'
     assert first["gui_description"] == "Do step 0."
+    assert first["next_observation"] == "Screen of step 1."
+    assert "observation" not in transitions.columns
+    assert transitions.filter(pl.col("exclusion_reason") == "last_step")[
+        "next_observation"
+    ].to_list() == [None, None]
     assert transitions["judge_status"].unique().sort().to_list() == [
         "completed",
         "failed",

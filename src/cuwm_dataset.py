@@ -270,7 +270,8 @@ def build_transitions(
 
     Returns:
         One row per step with task fields, both screenshots, the original code, the JSON tool
-        arguments, the action description, the judge status and a null or exclusion reason.
+        arguments, the action description, the AgentNet observation of the next step, the judge
+        status and a null or exclusion reason.
     """
     steps = (
         trajectories.select("task_id", "domain", "instruction", "task_completed", "traj")
@@ -287,12 +288,15 @@ def build_transitions(
             "code",
             pl.col("action").alias("gui_description"),
             "reflection",
+            "observation",
         )
         .sort("task_id", "index")
         .with_columns(
             pl.col("index").shift(-1).over("task_id").alias("next_index"),
             pl.col("image").shift(-1).over("task_id").alias("next_image"),
+            pl.col("observation").shift(-1).over("task_id").alias("next_observation"),
         )
+        .drop("observation")
         .collect()
     )
     validator = build_action_validator()
