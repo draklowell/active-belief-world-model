@@ -174,7 +174,8 @@ uv run python scripts/host_inference_server.py \
   --config config/server-cuwm-teacher.json --backend colab --accelerator gpu/G4
 ```
 
-Use `--accelerator gpu/A100` for the backup. The launcher needs the `colab` CLI logged in and
+Use `--accelerator gpu/A100 --high-mem` for the backup: without `--high-mem` Colab assigns the
+standard machine shape with an A100 40GB, too small for the FP8 teacher. The launcher needs the `colab` CLI logged in and
 `TAILSCALE_AUTH_KEY` and `HF_TOKEN` in `.env`. The server joins Tailscale as `teacher-server`,
 so clients use `http://teacher-server:8000/v1`.
 

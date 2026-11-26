@@ -308,8 +308,15 @@ class TestRepositoryServerConfigs:
 
 
 class TestColabRun:
+    @pytest.mark.parametrize(
+        ("should_request_high_mem", "high_mem"), [(False, []), (True, ["--high-mem"])]
+    )
     def test_run_disables_the_output_timeout_and_forwards_the_gpu(
-        self, orchestrator: ModuleType, monkeypatch: pytest.MonkeyPatch
+        self,
+        orchestrator: ModuleType,
+        monkeypatch: pytest.MonkeyPatch,
+        should_request_high_mem: bool,
+        high_mem: list[str],
     ) -> None:
         commands: list[list[str]] = []
 
@@ -330,6 +337,7 @@ class TestColabRun:
         args = orchestrator.argparse.Namespace(
             config=str(FIXTURES_DIR / "dummy_config.json"),
             accelerator="gpu/G4",
+            should_request_high_mem=should_request_high_mem,
             session="teacher",
         )
         orchestrator.run_colab(args)
@@ -339,6 +347,7 @@ class TestColabRun:
                 "run",
                 "--gpu",
                 "G4",
+                *high_mem,
                 "--timeout",
                 "0",
                 "-s",

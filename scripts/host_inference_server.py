@@ -222,11 +222,22 @@ def run_colab(args: argparse.Namespace) -> None:
     else:
         accelerator_type, accelerator_model = (args.accelerator or "gpu/t4").split("/", 1)
         accelerator = (f"--{accelerator_type}", accelerator_model)
+    high_mem = ("--high-mem",) if args.should_request_high_mem else ()
 
     session_name = args.session
     log.info("Starting Colab run (session=%s)...", session_name)
     process = subprocess.Popen(
-        ["colab", "run", *accelerator, "--timeout", "0", "-s", session_name, str(CORE_PATH)],
+        [
+            "colab",
+            "run",
+            *accelerator,
+            *high_mem,
+            "--timeout",
+            "0",
+            "-s",
+            session_name,
+            str(CORE_PATH),
+        ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
@@ -273,6 +284,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Kaggle or Colab machine shape (default: NvidiaTeslaT4 "
         "for kaggle and gpu/t4 for colab).",
+    )
+    parser.add_argument(
+        "--high-mem",
+        dest="should_request_high_mem",
+        action="store_true",
+        help="Request the Colab high-RAM machine shape, needed for the A100 80GB (colab only).",
     )
     parser.add_argument(
         "--session",
