@@ -9,6 +9,8 @@ from openai import APIConnectionError, BadRequestError, InternalServerError, Ope
 from openai.types.chat import ChatCompletionMessageParam
 from PIL import Image
 
+from experiment_log import span
+
 logger = logging.getLogger(__name__)
 
 
@@ -80,12 +82,23 @@ class OpenAITextModel:
             },
         ]
         logger.info("Requesting text from %s", self.model)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_tokens=self.max_tokens,
-            temperature=self.temperature,
-        )
+        with span(
+            "chat_completion",
+            "CHAT_MODEL",
+            inputs={
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": self.max_tokens,
+                "temperature": self.temperature,
+            },
+        ) as completion_span:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+            )
+            completion_span.outputs = response
         if not response.choices:
             raise ValueError("The textual inference endpoint returned no choices.")
         choice = response.choices[0]

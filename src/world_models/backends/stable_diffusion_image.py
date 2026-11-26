@@ -9,6 +9,8 @@ from decouple import config
 from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAI, RateLimitError
 from PIL import Image, ImageOps
 
+from experiment_log import span
+
 logger = logging.getLogger(__name__)
 
 
@@ -103,21 +105,33 @@ class StableDiffusionImageModel:
         if extra_params:
             prompt += f"<sd_cpp_extra_args>{json.dumps(extra_params)}</sd_cpp_extra_args>"
         logger.info("Requesting image edit from %s", self.model)
-        response = self.client.images.edit(
-            model=self.model,
-            image=("screenshot.png", image_buffer.getvalue(), "image/png"),
-            prompt=prompt,
-            size=f"{padded_width}x{padded_height}",
-            n=1,
-            response_format="b64_json",
-            output_format="png",
-        )
-        if not response.data or not response.data[0].b64_json:
-            raise ValueError(
-                "The image inference endpoint returned no usable image; "
-                "expected inline data[0].b64_json."
+        size = f"{padded_width}x{padded_height}"
+        with span(
+            "image_edit",
+            "TOOL",
+            inputs={
+                "model": self.model,
+                "image": image_buffer.getvalue(),
+                "prompt": prompt,
+                "size": size,
+            },
+        ) as edit_span:
+            response = self.client.images.edit(
+                model=self.model,
+                image=("screenshot.png", image_buffer.getvalue(), "image/png"),
+                prompt=prompt,
+                size=size,
+                n=1,
+                response_format="b64_json",
+                output_format="png",
             )
-        image_bytes = base64.b64decode(response.data[0].b64_json, validate=True)
+            if not response.data or not response.data[0].b64_json:
+                raise ValueError(
+                    "The image inference endpoint returned no usable image; "
+                    "expected inline data[0].b64_json."
+                )
+            image_bytes = base64.b64decode(response.data[0].b64_json, validate=True)
+            edit_span.outputs = {"image": image_bytes, "usage": response.usage}
         buffer = BytesIO()
         with Image.open(BytesIO(image_bytes)) as prediction:
             if prediction.size != (padded_width, padded_height):

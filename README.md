@@ -76,7 +76,7 @@ uv run streamlit run app/streamlit_app.py  # opens the demo at localhost:8501
 > [!important]
 > Python 3.14 is required by `.python-version` and `pyproject.toml`. After installing the system prerequisites, `make setup` installs Python, syncs dependencies, and installs the Git hooks. Do not substitute an older Python version if a dependency fails to install.
 >
-> The `Makefile` wraps project setup and the local MLflow server. Every other command in this README (the app, linting, tests) is run directly; see "Development" below.
+> The `Makefile` wraps project setup. Every other command in this README (the app, linting, tests) is run directly; see "Development" below.
 
 ### Dependency management
 
@@ -138,6 +138,29 @@ uv run jupyter lab notebooks/
 
 > [!note] Why this matters: CI enforces it instead of "we agreed to"
 > "The team agreed to run black before committing" survives about one deadline-week skip before someone's code silently stops matching. A red `lint` check in CI is unambiguous, and — importantly — **a red CI check blocks merging**: reviewing a PR you can't tell has passed its own tests is a bad use of a reviewer's time, so don't merge over red CI, fix it first.
+
+## Benchmark results
+
+`scripts/benchmark.py` writes each run to its own experiment folder under `--output-dir`,
+which defaults to `BENCHMARK_OUTPUT_DIR` or `.artifacts/experiments`:
+
+```
+{output_dir}/{experiment}/
+├── experiment.json        # name, creation time, tags, settings, agent configuration, tasks
+├── summary.json           # aggregate metrics and per-task results
+├── images/{sha256}.png    # every distinct image, stored once
+└── tasks/{task_id}/
+    ├── task.json          # domain, status, timestamps, and error traceback
+    ├── spans.jsonl        # one finished span per line
+    └── recording.mp4      # screen recording of the task
+```
+
+Each line of `spans.jsonl` holds `span_id`, `parent_id`, `name`, `span_type`, `status`,
+`start_time`, `end_time`, an optional `error`, `inputs`, and `outputs`. The spans of one task
+form a tree: `task`, `reset`, `step_N`, `predict`, `action_N`, and `record_video`, with a
+`chat_completion` or `image_edit` span for every model request made inside `predict`. Images
+in inputs and outputs are replaced by `{"image": "images/{sha256}.png"}`, relative to the
+experiment folder, so a screenshot resent in later requests is written only once.
 
 ## Reproducibility
 
