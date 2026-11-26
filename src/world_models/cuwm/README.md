@@ -40,9 +40,9 @@ cuwm.generate_text_desc(screenshot, action, *, gui_description, app_name=None)
 cuwm.predict(screenshot, action, *, gui_description, app_name=None)
 ```
 
-- `action` is the structured candidate action. The agent passes the
-  `computer_use` tool call JSON from the Qwen3-VL action space, for example
-  `{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [512, 64]}}`.
+- `action` is the structured candidate action as text. The agent passes the
+  tool call JSON from the Qwen3-VL action space, named after the action, for example
+  `{"name": "left_click", "arguments": {"coordinate": [512, 64]}}`.
 - `gui_description` is the description of that action. The agent passes the
   candidate's one-sentence `Action:` description, for example
   `Click the column H header.`.
@@ -59,7 +59,7 @@ in practice only by the paper prompt set.
 
 [`cuwm-qwen3vl/textual_state_transition.j2`](../../prompts/templates/cuwm-qwen3vl/textual_state_transition.j2)
 keeps the paper's task statement, inputs, `{{ image }}`, `{{ action }}`, and
-`{{ gui_description }}` slots, three-part response structure, top-down region
+`{{ gui_description }}` slots, with the action inside a `json` code fence, three-part response structure, top-down region
 order, change phrasing, quoting rule, and single-paragraph output. It changes
 the following text:
 
@@ -103,8 +103,8 @@ the default paper prompt set.
 2. **Domain.** The prompt targets Ubuntu desktop applications in OSWorld
    instead of Word, Excel, and PowerPoint, with the region and example changes
    listed above. This change was made for the agent.
-3. **Action representation.** The action is a Qwen3-VL `computer_use` tool call
-   with coordinates on a relative 1000x1000 grid by default, and the GUI
+3. **Action representation.** The action is a Qwen3-VL action tool call
+   (`{"name": <action>, "arguments": {...}}`) with coordinates on a relative 1000x1000 grid by default, and the GUI
    description is a one-sentence imperative produced by the policy instead of a
    function-level description. The paper's
    actions are GUI-360 commands (`function`, `args`, `status`) that may target

@@ -7,7 +7,7 @@ from cuwm_dataset import (
     assign_splits,
     build_action_validator,
     build_transitions,
-    convert_code_to_arguments,
+    convert_code_to_tool_call,
     find_osworld_overlap,
     sample_transitions,
 )
@@ -17,28 +17,44 @@ PROCESSED_SIZE = (1920, 1088)
 
 
 @pytest.mark.parametrize(
-    ("code", "arguments"),
+    ("code", "tool_call"),
     [
-        ("pyautogui.click(x=0.5, y=0.25)", {"action": "left_click", "coordinate": [500, 250]}),
-        ("pyautogui.doubleClick(x=0, y=1.0)", {"action": "double_click", "coordinate": [0, 999]}),
-        ("pyautogui.rightClick(x=0.1, y=0.2)", {"action": "right_click", "coordinate": [100, 200]}),
-        ("pyautogui.moveTo(x=0.394, y=0.604)", {"action": "mouse_move", "coordinate": [394, 603]}),
-        ("pyautogui.write(message='a\\nb')", {"action": "type", "text": "a\nb"}),
-        ("pyautogui.press('pagedown')", {"action": "key", "keys": ["pagedown"]}),
-        ("pyautogui.hotkey(['ctrl', 'o'])", {"action": "key", "keys": ["ctrl", "o"]}),
-        ("pyautogui.scroll(-8)", {"action": "scroll", "pixels": -8}),
+        (
+            "pyautogui.click(x=0.5, y=0.25)",
+            {"name": "left_click", "arguments": {"coordinate": [500, 250]}},
+        ),
+        (
+            "pyautogui.doubleClick(x=0, y=1.0)",
+            {"name": "double_click", "arguments": {"coordinate": [0, 999]}},
+        ),
+        (
+            "pyautogui.rightClick(x=0.1, y=0.2)",
+            {"name": "right_click", "arguments": {"coordinate": [100, 200]}},
+        ),
+        (
+            "pyautogui.moveTo(x=0.394, y=0.604)",
+            {"name": "mouse_move", "arguments": {"coordinate": [394, 603]}},
+        ),
+        ("pyautogui.write(message='a\\nb')", {"name": "type", "arguments": {"text": "a\nb"}}),
+        ("pyautogui.press('pagedown')", {"name": "key", "arguments": {"keys": ["pagedown"]}}),
+        ("pyautogui.hotkey(['ctrl', 'o'])", {"name": "key", "arguments": {"keys": ["ctrl", "o"]}}),
+        ("pyautogui.scroll(-8)", {"name": "scroll", "arguments": {"pixels": -8}}),
         (
             "pyautogui.moveTo(x=0.1, y=0.1)\npyautogui.moveTo(x=0.072, y=0.506)\n"
             "pyautogui.scroll(-4)\npyautogui.scroll(-2)",
-            {"action": "scroll", "coordinate": [72, 505], "pixels": -6},
+            {"name": "scroll", "arguments": {"coordinate": [72, 505], "pixels": -6}},
         ),
-        ("computer.wait()", {"action": "wait"}),
-        ("computer.terminate(status='failure')", {"action": "terminate", "status": "failure"}),
+        ("computer.wait()", {"name": "wait", "arguments": {}}),
+        (
+            "computer.terminate(status='failure')",
+            {"name": "terminate", "arguments": {"status": "failure"}},
+        ),
     ],
 )
-def test_convert_code_to_arguments(code: str, arguments: dict) -> None:
-    """Check the mapping of every supported AgentNet call to `computer_use` arguments."""
-    assert convert_code_to_arguments(code) == arguments
+def test_convert_code_to_tool_call(code: str, tool_call: dict) -> None:
+    """Check the mapping of every supported AgentNet call to a tool call the agent accepts."""
+    assert convert_code_to_tool_call(code) == tool_call
+    assert build_action_validator().is_valid({"action": "Act.", "tool_call": tool_call})
 
 
 @pytest.mark.parametrize(
@@ -54,16 +70,17 @@ def test_convert_code_to_arguments(code: str, arguments: dict) -> None:
         "",
     ],
 )
-def test_convert_code_to_arguments_rejects_unsupported_code(code: str) -> None:
+def test_convert_code_to_tool_call_rejects_unsupported_code(code: str) -> None:
     """Check that drags, triple clicks, call combinations and non-literal code are unsupported."""
-    assert convert_code_to_arguments(code) is None
+    assert convert_code_to_tool_call(code) is None
 
 
 @pytest.mark.parametrize("fraction", [0.0, 0.018, 0.5, 0.981, 1.0])
 def test_relative_coordinates_round_trip_to_native_pixels(fraction: float) -> None:
     """Check that the agent's PyAutoGUI conversion maps converted coordinates back to the screen."""
-    arguments = convert_code_to_arguments(f"pyautogui.click(x={fraction}, y={fraction})")
-    assert arguments is not None
+    tool_call = convert_code_to_tool_call(f"pyautogui.click(x={fraction}, y={fraction})")
+    assert tool_call is not None
+    arguments = {"action": tool_call["name"]} | tool_call["arguments"]
     command = convert_tool_call_to_pyautogui(arguments, "relative", SCREEN_SIZE, PROCESSED_SIZE)
     x, y = (int(value) for value in command[0].removeprefix("pyautogui.click(")[:-1].split(","))
     assert abs(x - fraction * SCREEN_SIZE[0]) <= 2
@@ -75,13 +92,12 @@ def test_action_validator_uses_agent_schema() -> None:
     validator = build_action_validator()
     option = {
         "action": "Click the button.",
-        "tool_call": {
-            "name": "computer_use",
-            "arguments": convert_code_to_arguments("pyautogui.click(x=0.5, y=0.5)"),
-        },
+        "tool_call": convert_code_to_tool_call("pyautogui.click(x=0.5, y=0.5)"),
     }
     assert validator.is_valid(option)
-    option["tool_call"]["arguments"] = convert_code_to_arguments("pyautogui.click(x=0.9, y=-0.01)")
+    option["tool_call"] = convert_code_to_tool_call("pyautogui.click(x=0.9, y=-0.01)")
+    assert not validator.is_valid(option)
+    option["tool_call"] = {"name": "computer_use", "arguments": {"action": "wait"}}
     assert not validator.is_valid(option)
 
 
@@ -161,7 +177,8 @@ def test_build_transitions_assigns_exclusion_reasons() -> None:
     }
     first = transitions.row(0, named=True)
     assert first["next_image"] == "a1"
-    assert first["tool_arguments"] == '{"action": "left_click", "coordinate": [500, 500]}'
+    assert first["tool_call"] == '{"name": "left_click", "arguments": {"coordinate": [500, 500]}}'
+    assert first["action_name"] == "left_click"
     assert first["gui_description"] == "Do step 0."
     assert first["next_observation"] == "Screen of step 1."
     assert "observation" not in transitions.columns

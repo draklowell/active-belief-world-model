@@ -21,7 +21,7 @@ TRANSITION = {
     "split": "validation",
     "image": "a0.png",
     "next_image": "a1.png",
-    "tool_arguments": '{"action": "left_click", "coordinate": [407, 530]}',
+    "tool_call": '{"name": "left_click", "arguments": {"coordinate": [407, 530]}}',
     "gui_description": "Click the toggle switch.",
     "next_observation": "The toggle switch is on.",
 }
@@ -45,10 +45,7 @@ def sample_frame() -> pl.DataFrame:
 def test_render_annotation_prompt_uses_inference_action_and_ordered_markers() -> None:
     """Check the action form, the screenshot markers and that the hint is off by default."""
     prompt = label_cuwm_transitions.render_annotation_prompt(TRANSITION, False)
-    action = (
-        '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [407, 530]}}'
-    )
-    assert action in prompt
+    assert f"Action:\n```json\n{TRANSITION['tool_call']}\n```\n" in prompt
     assert "Click the toggle switch." in prompt
     assert prompt.index(label_cuwm_transitions.CURRENT_IMAGE_MARKER) < prompt.index(
         label_cuwm_transitions.NEXT_IMAGE_MARKER

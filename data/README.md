@@ -74,12 +74,13 @@ without a weight is not sampled.
 1. **Pairing.** Each step forms a transition with the step whose `index` follows directly.
 
 2. **Actions.** The AgentNet `code` is parsed with `ast`, never executed, and converted to the
-   `computer_use` arguments of the Qwen3-VL agent, including the `action` name. Coordinates are
+   tool call the Qwen3-VL CUWM agent predicts and passes to CUWM, named after the action,
+   for example `{"name": "left_click", "arguments": {"coordinate": [44, 117]}}`. Coordinates are
    fractions of the screen and become `round(fraction * 999)`, the inverse of the agent's
    `adjust_coordinates`. Every converted action must pass the agent's option schema,
    `build_option_schema`, with the AgentNet `action` text as the description.
 
-   | AgentNet code                         | Tool call arguments                            |
+   | AgentNet code                         | Tool call `name` and `arguments`               |
    | ------------------------------------- | ---------------------------------------------- |
    | `pyautogui.click(x, y)`               | `left_click` with `coordinate`                 |
    | `pyautogui.doubleClick(x, y)`         | `double_click` with `coordinate`               |
@@ -130,13 +131,13 @@ without a weight is not sampled.
 | `labels.jsonl`               | Teacher labels of the sample with teacher metadata                   |
 
 Both Parquet files have one row per step with `task_id`, `domain`, `instruction`, `index`,
-`image`, `next_image`, `code`, `tool_arguments` (JSON `computer_use` arguments),
+`image`, `next_image`, `code`, `tool_call` (the JSON tool call),
 `action_name`, `gui_description` (the AgentNet `action` text), `reflection` (AgentNet's own
 comparison of the two screenshots, null on about a third of the sample), `next_observation`
 (AgentNet's description of the next screenshot, the `observation` of the next step),
 `judge_status`, the
-CRC32 and size of both screenshots, `exclusion_reason` and `split`. The `tool_arguments` keep the
-`action` argument so that either tool call layout of the agent can be rendered from them.
+CRC32 and size of both screenshots, `exclusion_reason` and `split`. `tool_call` is serialized
+with `json.dumps` exactly as the agent serializes the candidate it passes to `CUWM.predict`.
 
 ### Annotation prompt
 
@@ -150,13 +151,13 @@ screenshot, follow the screenshot when it disagrees with the action or its descr
 the clock, exclude the task goal, and keep the answer under 300 words to fit the world model's
 512 token limit.
 
-| Slot               | Value                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| `image`            | Marker of the current screenshot, attached first                                          |
-| `next_image`       | Marker of the next screenshot, attached second                                            |
-| `action`           | `{"name": "computer_use", "arguments": ...}` built from `tool_arguments`, as at inference |
-| `gui_description`  | The AgentNet `action` text                                                                |
-| `next_observation` | The `next_observation` column as an untrusted hint, or `None` to omit it                  |
+| Slot               | Value                                                                    |
+| ------------------ | ------------------------------------------------------------------------ |
+| `image`            | Marker of the current screenshot, attached first                         |
+| `next_image`       | Marker of the next screenshot, attached second                           |
+| `action`           | The `tool_call` column, the string the agent passes to CUWM at inference |
+| `gui_description`  | The AgentNet `action` text                                               |
+| `next_observation` | The `next_observation` column as an untrusted hint, or `None` to omit it |
 
 The task instruction and `reflection` are not given to the teacher. `reflection` exists only for
 judged tasks, so its coverage depends on the domain, and both AgentNet texts mention the task

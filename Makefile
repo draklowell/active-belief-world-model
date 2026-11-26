@@ -1,5 +1,10 @@
 .PHONY: setup
 
+ifneq (,$(wildcard ./.env))
+    include .env
+    export
+endif
+
 setup:
 	uv python install 3.14
 	uv sync
@@ -7,8 +12,8 @@ setup:
 
 mlflow-headless:
 	uv run mlflow server \
-		--backend-store-uri sqlite:///.artifacts/mlflow.db \
-		--default-artifact-root ./.artifacts/mlruns \
+		--backend-store-uri sqlite:///$(MLFLOW_BASE_PATH)mlflow.db \
+		--default-artifact-root $(MLFLOW_BASE_PATH)mlruns \
 		--host 127.0.0.1 \
 		--port 5000 \
 		--workers 1 \
@@ -16,8 +21,8 @@ mlflow-headless:
 
 mlflow:
 	uv run mlflow server \
-		--backend-store-uri sqlite:///.artifacts/mlflow.db \
-		--default-artifact-root ./.artifacts/mlruns \
+		--backend-store-uri sqlite:///$(MLFLOW_BASE_PATH)mlflow.db \
+		--default-artifact-root $(MLFLOW_BASE_PATH)mlruns \
 		--host 127.0.0.1 \
 		--port 5000 \
 		--workers 1

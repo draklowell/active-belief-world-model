@@ -74,8 +74,8 @@ def relative_coordinate(keywords: dict) -> list[int]:
     return [round(keywords["x"] * COORDINATE_SCALE), round(keywords["y"] * COORDINATE_SCALE)]
 
 
-def convert_code_to_arguments(code: str) -> dict | None:
-    """Convert the action code of one AgentNet step into `computer_use` tool call arguments.
+def convert_code_to_tool_call(code: str) -> dict | None:
+    """Convert the action code of one AgentNet step into the tool call the CUWM agent predicts.
 
     Clicks, pointer moves, typing, key presses, hotkeys, waits and terminations map to one action.
     Pointer moves followed by scrolls become one scroll at the last pointer position with the
@@ -86,7 +86,7 @@ def convert_code_to_arguments(code: str) -> dict | None:
         code: Python source of one AgentNet step.
 
     Returns:
-        Tool call arguments including the `action` name, or None for unsupported code.
+        Tool call with the action `name` and its `arguments`, or None for unsupported code.
     """
     calls = parse_calls(code)
     if not calls:
@@ -97,27 +97,30 @@ def convert_code_to_arguments(code: str) -> dict | None:
     if scrolls and len(moves) + len(scrolls) == len(calls):
         if names.index("pyautogui.scroll") != len(moves):
             return None
-        arguments: dict = {"action": "scroll"}
+        arguments: dict = {}
         if moves:
             arguments["coordinate"] = relative_coordinate(moves[-1])
         arguments["pixels"] = sum(scrolls)
-        return arguments
+        return {"name": "scroll", "arguments": arguments}
     if len(calls) != 1:
         return None
     name, positional, keywords = calls[0]
     if name in POINTER_ACTIONS:
-        return {"action": POINTER_ACTIONS[name], "coordinate": relative_coordinate(keywords)}
+        return {
+            "name": POINTER_ACTIONS[name],
+            "arguments": {"coordinate": relative_coordinate(keywords)},
+        }
     match name:
         case "pyautogui.write":
-            return {"action": "type", "text": keywords["message"]}
+            return {"name": "type", "arguments": {"text": keywords["message"]}}
         case "pyautogui.press":
-            return {"action": "key", "keys": [positional[0]]}
+            return {"name": "key", "arguments": {"keys": [positional[0]]}}
         case "pyautogui.hotkey":
-            return {"action": "key", "keys": list(positional[0])}
+            return {"name": "key", "arguments": {"keys": list(positional[0])}}
         case "computer.wait":
-            return {"action": "wait"}
+            return {"name": "wait", "arguments": {}}
         case "computer.terminate":
-            return {"action": "terminate", "status": keywords["status"]}
+            return {"name": "terminate", "arguments": {"status": keywords["status"]}}
     return None
 
 
@@ -125,7 +128,7 @@ def build_action_validator() -> Validator:
     """Build the validator of candidate actions used by the Qwen3-VL CUWM agent.
 
     Returns:
-        Validator of an option with an `action` description and a relative `computer_use` call.
+        Validator of an option with an `action` description and a relative tool call.
     """
     computer_use_tool = build_computer_use_tool("relative", *RELATIVE_COORDINATE_SPACE)
     return Draft202012Validator(build_option_schema(computer_use_tool, RELATIVE_COORDINATE_SPACE))
@@ -256,7 +259,7 @@ def build_transitions(
     """Pair every AgentNet step with the next screenshot and label why a transition is excluded.
 
     A step forms a transition with the step whose index follows it directly. Actions are converted
-    to `computer_use` arguments and validated with the agent's option schema. Screenshots are
+    to the agent's tool calls and validated with its option schema. Screenshots are
     compared through the CRC32 and size of the archive index, so identical frames are found
     without downloading them. Exclusion reasons are assigned in this order: `osworld_overlap`,
     `last_step`, `non_consecutive_index`, `missing_image`, `unsupported_action`, `invalid_action`,
@@ -270,7 +273,7 @@ def build_transitions(
 
     Returns:
         One row per step with task fields, both screenshots, the original code, the JSON tool
-        arguments, the action description, the AgentNet observation of the next step, the judge
+        call, the action description, the AgentNet observation of the next step, the judge
         status and a null or exclusion reason.
     """
     steps = (
@@ -300,16 +303,11 @@ def build_transitions(
         .collect()
     )
     validator = build_action_validator()
-    arguments = [convert_code_to_arguments(code) for code in steps["code"]]
+    tool_calls = [convert_code_to_tool_call(code) for code in steps["code"]]
     is_valid_action = [
-        argument is not None
-        and validator.is_valid(
-            {
-                "action": description,
-                "tool_call": {"name": "computer_use", "arguments": argument},
-            }
-        )
-        for argument, description in zip(arguments, steps["gui_description"])
+        tool_call is not None
+        and validator.is_valid({"action": description, "tool_call": tool_call})
+        for tool_call, description in zip(tool_calls, steps["gui_description"])
     ]
     checksums = image_index.select("name", "crc32", "uncompressed_bytes")
     reason = (
@@ -321,7 +319,7 @@ def build_transitions(
         .then(pl.lit("non_consecutive_index"))
         .when(pl.col("image_crc32").is_null() | pl.col("next_image_crc32").is_null())
         .then(pl.lit("missing_image"))
-        .when(pl.col("tool_arguments").is_null())
+        .when(pl.col("tool_call").is_null())
         .then(pl.lit("unsupported_action"))
         .when(~pl.col("is_valid_action"))
         .then(pl.lit("invalid_action"))
@@ -334,15 +332,15 @@ def build_transitions(
         .then(pl.lit("unchanged_screenshot"))
     )
     is_repeat = (
-        ~pl.struct("image_crc32", "image_bytes", "tool_arguments")
+        ~pl.struct("image_crc32", "image_bytes", "tool_call")
         .is_first_distinct()
         .over(pl.col("exclusion_reason").is_null())
     )
     return (
         steps.with_columns(
             pl.Series(
-                "tool_arguments",
-                [json.dumps(argument) if argument else None for argument in arguments],
+                "tool_call",
+                [json.dumps(tool_call) if tool_call else None for tool_call in tool_calls],
                 dtype=pl.String,
             ),
             pl.Series("is_valid_action", is_valid_action),
@@ -353,7 +351,7 @@ def build_transitions(
             .otherwise(pl.lit("failed"))
             .alias("judge_status"),
         )
-        .with_columns(pl.col("tool_arguments").str.json_path_match("$.action").alias("action_name"))
+        .with_columns(pl.col("tool_call").str.json_path_match("$.name").alias("action_name"))
         .join(
             checksums.rename(
                 {"name": "image", "crc32": "image_crc32", "uncompressed_bytes": "image_bytes"}

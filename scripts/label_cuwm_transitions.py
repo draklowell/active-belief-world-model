@@ -57,21 +57,18 @@ def render_annotation_prompt(transition: dict, should_include_next_observation: 
     """Render the teacher prompt of one transition with its action in the inference form.
 
     Args:
-        transition: Sample row with tool_arguments, gui_description and next_observation.
+        transition: Sample row with tool_call, gui_description and next_observation.
         should_include_next_observation: Whether to add the AgentNet observation of the next step
             as a hint.
 
     Returns:
         Prompt text that refers to the two attached screenshots through their markers.
     """
-    action = json.dumps(
-        {"name": "computer_use", "arguments": json.loads(transition["tool_arguments"])}
-    )
     return render(
         ANNOTATION_TEMPLATE,
         image=CURRENT_IMAGE_MARKER,
         next_image=NEXT_IMAGE_MARKER,
-        action=action,
+        action=transition["tool_call"],
         gui_description=transition["gui_description"],
         next_observation=(
             transition["next_observation"] if should_include_next_observation else None

@@ -219,7 +219,7 @@ def test_desktop_transition_keeps_the_paper_instructions_without_an_application(
     assert "Office" not in desktop_prompt
     shared_sections = [
         "Your task is to predict and describe the likely appearance of the Next UI Screenshot",
-        "Current UI Screenshot:\n{image}\n\nAction:\n{action}",
+        "Current UI Screenshot:\n{image}\n\nAction:\n",
         "GUI Action Description:\n{gui_description}",
         "Only describe changed parts; for unchanged elements, state explicitly",
         "Do not include reasoning, internal thoughts, or references to the images",
@@ -227,6 +227,8 @@ def test_desktop_transition_keeps_the_paper_instructions_without_an_application(
     ]
     assert all(section in paper_prompt for section in shared_sections)
     assert all(section in desktop_prompt for section in shared_sections)
+    assert "Action:\n{action}\n" in paper_prompt
+    assert "Action:\n```json\n{action}\n```\n" in desktop_prompt
 
 
 @pytest.mark.parametrize("missing", DESKTOP_CONTEXT)
@@ -240,9 +242,7 @@ def test_desktop_transition_requires_every_slot(missing: str) -> None:
 ANNOTATION_CONTEXT = {
     "image": "[Current UI screenshot]",
     "next_image": "[Next UI screenshot]",
-    "action": (
-        '{"name": "computer_use", "arguments": {"action": "left_click", "coordinate": [44, 117]}}'
-    ),
+    "action": '{"name": "left_click", "arguments": {"coordinate": [44, 117]}}',
     "gui_description": "Click the back button in the browser's navigation bar.",
     "next_observation": None,
 }
@@ -290,13 +290,13 @@ def test_annotation_adds_the_next_observation_only_when_given() -> None:
 
 def test_annotation_keeps_json_and_placeholder_like_text_opaque() -> None:
     """Treat inserted actions, descriptions, and observations as literal text in one pass."""
-    action = '{"name": "computer_use", "arguments": {"action": "type", "text": "{{ image }}"}}'
+    action = '{"name": "type", "arguments": {"text": "{{ image }}"}}'
     description = "Type the literal text {next_image} without substitution."
     observation = "A cell shows {% raw %} and {{ next_observation }}."
     prompt = render_annotation(
         action=action, gui_description=description, next_observation=observation
     )
-    assert "Action:\n" + action in prompt
+    assert f"Action:\n```json\n{action}\n```\n" in prompt
     assert "GUI Action Description:\n" + description in prompt
     assert observation in prompt
 

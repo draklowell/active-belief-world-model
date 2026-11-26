@@ -89,6 +89,8 @@ Executable prompts use the shared `prompts.render(template_name, **context)` API
 Jinja2 loads `.j2` files from `src/prompts/templates/` through a package loader,
 independently of the working directory. Missing variables raise `UndefinedError`;
 plain-text values, JSON, and XML are not HTML-escaped or recursively rendered.
+The `tojson` filter is `json.dumps` with `ensure_ascii=False`, so it keeps key order
+and does not apply the HTML-safe escapes of the Jinja2 built-in filter.
 
 CUWM templates are named `cuwm/textual_state_transition.j2`,
 `cuwm/image_preservation.j2`, `cuwm/action_option_generation.j2`,
