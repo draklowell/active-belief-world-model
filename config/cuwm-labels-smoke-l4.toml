@@ -1,0 +1,12 @@
+transitions = "data/interim/cuwm/sample.parquet"
+images_dir = "data/raw/agentnet/images"
+server_config = "config/server-cuwm-smoke-l4.json"
+workers = 8
+
+[text_model]
+model = "cuwm-teacher"
+base_url = "http://teacher-server:8000/v1"
+max_tokens = 512
+temperature = 0.0
+api_key_env = "OPENAI_API_KEY"
+timeout = 300.0

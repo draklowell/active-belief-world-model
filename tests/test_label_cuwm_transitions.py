@@ -346,12 +346,16 @@ def test_main_rejects_a_server_running_another_checkpoint(
     assert FakeTeacher.requests == []
 
 
-@pytest.mark.parametrize("config_name", ["cuwm-labels.toml", "cuwm-labels-qwen35.toml"])
+@pytest.mark.parametrize(
+    "config_path",
+    sorted((REPO_ROOT / "config").glob("cuwm-labels*.toml")),
+    ids=lambda path: path.name,
+)
 def test_repository_labelling_config_matches_the_client_and_the_teacher_server(
-    config_name: str,
+    config_path: Path,
 ) -> None:
     """Check that the supplied configurations name client options and a teacher server."""
-    with (REPO_ROOT / "config" / config_name).open("rb") as config_file:
+    with config_path.open("rb") as config_file:
         settings = tomllib.load(config_file)
     client_options = set(inspect.signature(OpenAITextModel.__init__).parameters) - {"self"}
     assert set(settings["text_model"]) <= client_options
