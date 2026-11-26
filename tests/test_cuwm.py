@@ -216,6 +216,54 @@ def test_text_model_attaches_several_screenshots_in_order_before_the_prompt(
     assert image_sizes == [[(31, 17), (40, 24)]]
 
 
+@pytest.mark.parametrize(
+    ("chat_template_kwargs", "expected_kwargs"),
+    [(None, None), ({"enable_thinking": False}, {"enable_thinking": False})],
+)
+def test_text_model_sends_chat_template_kwargs_only_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    screenshot: bytes,
+    chat_template_kwargs: dict | None,
+    expected_kwargs: dict | None,
+) -> None:
+    """Send chat template options such as disabled thinking in the request body on request."""
+    bodies: list[dict] = []
+
+    def send_response(
+        client: httpx2.Client, request: httpx2.Request, **options: object
+    ) -> httpx2.Response:
+        bodies.append(json.loads(request.read()))
+        return httpx2.Response(
+            200,
+            request=request,
+            json={
+                "id": "text-response",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "teacher",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "Transition"},
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setenv("CUWM_TEST_API_KEY", "test-key")
+    monkeypatch.setattr(httpx2.Client, "send", send_response)
+    model = OpenAITextModel(
+        model="teacher",
+        base_url="https://text.test/v1",
+        api_key_env="CUWM_TEST_API_KEY",
+        chat_template_kwargs=chat_template_kwargs,
+    )
+    model.generate(screenshot, "Describe the transition", system_prompt="")
+    assert bodies[0].get("chat_template_kwargs") == expected_kwargs
+    assert ("chat_template_kwargs" in bodies[0]) is (expected_kwargs is not None)
+
+
 def test_stable_diffusion_edits_remotely_and_removes_only_alignment_padding(
     monkeypatch: pytest.MonkeyPatch, screenshot: bytes, retry_pauses: list[float]
 ) -> None:

@@ -189,6 +189,11 @@ so clients use `http://teacher-server:8000/v1`.
 `revision` and `limit_mm_per_prompt` are optional server options that map to the vLLM flags
 `--revision` and `--limit-mm-per-prompt`; other server configurations omit them.
 
+`config/server-cuwm-teacher-qwen35.json` serves the candidate teacher
+`Qwen/Qwen3.5-35B-A3B-FP8` at revision `9d1823d2dee688a6b25e77009dc727688c44936e` (37.5 GB) with
+the same host, served name and limits, so only the server configuration changes between the two
+teachers.
+
 ### Labelling
 
 `scripts/label_cuwm_transitions.py` sends every sampled transition to the teacher server and
@@ -212,16 +217,30 @@ client cannot detect, and is stored with every label.
 | `workers`                        | `8`                                  | Requests in flight, batched by vLLM                        |
 | `[text_model]`                   | `cuwm-teacher` at `teacher-server`   | `OpenAITextModel` options, `max_tokens` 512                |
 
+`config/cuwm-labels-qwen35.toml` labels with the Qwen3.5 teacher. It names the Qwen3.5 server
+configuration and sets `chat_template_kwargs = { enable_thinking = false }`, because Qwen3.5
+thinks before answering by default and its reasoning would otherwise fill the label.
+
 `max_tokens` is the world model's own limit, so a label the student could not reproduce within
 512 tokens is rejected as truncated. Every screenshot of the run must be on disk before the first
 request. The script checks that the server serves the checkpoint named by `server_config`, so a
 label is never stored with the metadata of another model.
 
 Each record holds `task_id` and `index`, which identify the transition in `sample.parquet`,
-`split`, `label`, `has_next_observation_hint`, `labelled_at` and `teacher` with the
-`checkpoint`, `revision`, `served_model`, `gpu`, `max_tokens`, `temperature` and `template` of the
-request. A rerun with the same output skips the transitions already in it, so an interrupted run
+`split`, `label`, `has_next_observation_hint`, `labelled_at`, `request_seconds` (from encoding
+the screenshots to the answer, including retries), `screenshot_bytes` (both screenshots on disk,
+uploaded as base64 at 4/3 of that size) and `teacher` with the `checkpoint`, `revision`,
+`served_model`, `gpu`, `max_tokens`, `temperature`, `chat_template_kwargs` and `template` of
+the request. A rerun with the same output skips the transitions already in it, so an interrupted run
 resumes. A truncated or rejected label is logged and not written, and a rerun requests it again.
+
+Every run appends a summary to the sibling file with the suffix `.runs.jsonl`, for example
+`labels.runs.jsonl`. The script reads vLLM's Prometheus histograms at `/metrics` before and after
+the requests, so the summary splits the mean request time of the client into the mean
+`e2e_request_latency` inside the engine (queue, prefill and decode, with mean prompt and
+generated tokens) and `mean_seconds_outside_engine`, the remainder: PNG encoding on the client,
+the upload, request parsing and image decoding on the server, and the reply. With several
+workers the uploads share the link, so the remainder includes waiting for bandwidth.
 
 ## Layout
 

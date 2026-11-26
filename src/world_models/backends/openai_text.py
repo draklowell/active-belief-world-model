@@ -37,6 +37,8 @@ class OpenAITextModel:
         base_url: Endpoint URL, or OPENAI_BASE_URL from decouple when omitted.
         api_key_env: Environment variable containing the API key.
         timeout: Request timeout in seconds.
+        chat_template_kwargs: Options for the server's chat template, such as
+            `{"enable_thinking": False}` for Qwen3.5, or None to send none.
     """
 
     def __init__(
@@ -47,10 +49,12 @@ class OpenAITextModel:
         base_url: str | None = None,
         api_key_env: str = "OPENAI_API_KEY",
         timeout: float = 120.0,
+        chat_template_kwargs: dict | None = None,
     ) -> None:
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.chat_template_kwargs = chat_template_kwargs
         self.client = OpenAI(
             base_url=base_url if base_url is not None else config("OPENAI_BASE_URL"),
             api_key=config(api_key_env),
@@ -110,6 +114,11 @@ class OpenAITextModel:
             messages=messages,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
+            extra_body=(
+                {"chat_template_kwargs": self.chat_template_kwargs}
+                if self.chat_template_kwargs is not None
+                else None
+            ),
         )
         if not response.choices:
             raise ValueError("The textual inference endpoint returned no choices.")

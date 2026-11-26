@@ -162,7 +162,10 @@ Adding a different API contract requires its adapter and one explicit branch
 in `build_cuwm`.
 
 The textual client accepts `max_tokens` (default 512), `temperature` (default
-0.0), and `timeout` (default 120 seconds). It preserves screenshot dimensions
+0.0), `timeout` (default 120 seconds), and `chat_template_kwargs`, a table of chat
+template options sent as the vLLM request field of that name and omitted by
+default. Qwen3.5 thinks before answering unless
+`chat_template_kwargs = { enable_thinking = false }`. It preserves screenshot dimensions
 when encoding the request. Its vision-capable Chat Completions endpoint must
 accept a system prompt and base64 PNG `image_url` user content, and return
 nonempty text in `choices[0].message.content`. Empty or truncated replies fail.
